@@ -1,12 +1,11 @@
 Package: Hausal
-Title: What the Package Does (One Line, Title Case)
+Title: Hawkes Causal Inference on Networks with covariates
 Version: 0.0.0.9000
 Authors@R: 
-    person("First", "Last", , "first.last@example.com", role = c("aut", "cre"),
-           comment = c(ORCID = "YOUR-ORCID-ID"))
-Description: What the package does (one paragraph).
-License: `use_mit_license()`, `use_gpl3_license()` or friends to pick a
-    license
+    person("Alexander", "Kreiss", , "alexander.kreiss@math.uni-leipzig.de", role = "aut",
+           comment = c(ORCID = "0000-0001-6483-8599"))
+Description: This package provides functions to execute causal inference under network confounding with covariates.
+License: `use_mit_license()`
 Encoding: UTF-8
 LazyData: true
 Roxygen: list(markdown = TRUE)
