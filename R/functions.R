@@ -1,15 +1,69 @@
-compute_baseline_intensities <- function(covariates,beta0,alpha,link=exp) {
-  p <- dim(covariates$cov[[1]])[1]
-  ## Multiply covarites with beta
-  mat <- matrix(.Call("multiply_covariates",covariates,as.double(beta0)),nrow=p)
-
-  ## Apply link function
-  mat <- link(mat)*alpha
-
-  return(mat)
-}
-
-simulate_hawkes <- function(covariates,beta0,gamma,alpha,C,T,link=exp,print.level=1,rand_seed=NA) {
+#' Simulate an Event Network from provided covariates
+#'
+#' Provides a simulated event history from the Hawkes Causal Model. The true
+#' model parameters and covariate processes have to be provided. In addition to
+#' the simulated events, `simulate_hawkes` also returns the overall individual
+#' intensity functions, the baseline intensities and the parts of the intensity
+#' due to mutual excitation.
+#'
+#' The result of the function is random and will therefore be different for
+#' different calls unless when the random seed is set before calling the
+#' function and setting the `rand_seed` value.
+#'
+#' `covariates` is a list of two elements `times` and `cov`
+#' * `times` is a vector of increasing time points with last element equal to
+#'   `T`. `i`-th element of `cov` contains the covariate information valid for
+#'   the interval `covariates$times[i]` till `covariates$times[i+1]`.
+#' * `cov` is itself a list. Its length equals the length of `times`. Each
+#'   element of `cov` is a pxq-matrix, where p is the number of vertices in the
+#'   network and q is the number of covariates. Each row of this matrix
+#'   corresponds to the covariate vector valid for the respective vertex.
+#'
+#' Details of the simulation process are provided in our paper.
+#'
+#' @param covariates Covariate information, its exact format is described in the
+#'   Details below.
+#' @param beta0 Vector of length q, the true parameter of the baseline
+#'   intensity.
+#' @param gamma Decay rate (typically positive) in the excitation kernels.
+#' @param alpha Non-negative vector of length p (number of vertices), where each
+#'   entry gives the individual activity of the corresponding vertex.
+#' @param C Weighted adjacency matrix of the network, must be non-negative and
+#'   of dimension p x p.
+#' @param T Positive number giving the end of observation period.
+#' @param link A function that can be applied to vectors returning a
+#'   non-negative vector of the same length, it will be applied to linear
+#'   transformation of the covariates with `beta0` to obtain the baseline
+#'   intensity. The defualt choice is  `exp`.
+#' @param print.level A single number, if 0 (the default) no status information
+#'   is printed, if positive some updates will be given about the process of the
+#'   the simulation.
+#' @param rand_seed Integer, if `NA` (the default) the current time stamp is
+#'   converted to an integer value. For the simulation it is necessary to
+#'   compute random numbers in a C sub-routine, `rand_seed` will be passed to
+#'   this routine. See also the Details section.
+#'
+#' @returns A list with the following elements:
+#' * `EL`: A matrix with four columns, each row corresponds to an event. The
+#'   third column specfies in which vertex the event happened and the fourth
+#'   column at which time. The rows are ordered according to the fourth column.
+#'   The first column contains a unique id (starting from 1) which identifies
+#'   the event. The second column specifies from which parent event the current
+#'   event was generated, events generated through the baseline have a 0 here.
+#' * `intensities`: A matrix with p rows and each column corresponds to an event
+#'   (in the same order as in `EL`). Each column gives the intensities of the
+#'   corresponding processes at the time of the event.
+#' * `integrals`: A matrix with p rows and each column corresponds to an event
+#'   (in the same order as in `EL`). Each column provides the values of the
+#'   integrals over the excitation kernels with respect to the corresponding
+#'   counting process (per vertex) and at the time of the corresponding event.
+#' * `baseline`: A matrix with p rows and number of columns equal to the length
+#'   of `covariates$times`. The i-th column contains the baseline intensities
+#'   of the corresponding vertices at time `covariates$times[i]`.
+#' * `covariates`: A copy of the input `covariates`.
+#'
+#' @export
+simulate_hawkes <- function(covariates,beta0,gamma,alpha,C,T,link=exp,print.level=0,rand_seed=NA) {
   p <- dim(C)[1]
 
   ## Compute Baseline
@@ -52,83 +106,94 @@ simulate_hawkes <- function(covariates,beta0,gamma,alpha,C,T,link=exp,print.leve
   return(out)
 }
 
-plot_count_intensities <- function(hawkes,T,times) {
-  ## Read Information
-  p <- dim(hawkes$intensities)[1]
-  M <- max(hawkes$intensities)
+#' Compute the Baseline Intensity
+#'
+#' When provided with the covariates, `compute_baseline_intensities` returns the
+#' baseline intensities at the times when the covariates change.
+#'
+#' @inheritParams simulate_hawkes
+#' @param covariates Covariate information, its exact format is described in the
+#'   Details of [simulate_hawkes()].
+#'
+#' @returns `compute_baseline_intensities` returns a matrix wit p (number of
+#'   vertices) rows and the number of columns equals the length of
+#'   `covariates$times`. The i-th column of the output gives the baseline
+#'   intensities of all vertices at the time `covariates$times[i]`.
+#' @export
+compute_baseline_intensities <- function(covariates,beta0,alpha,link=exp) {
+  p <- dim(covariates$cov[[1]])[1]
+  ## Multiply covarites with beta
+  mat <- matrix(.Call("multiply_covariates",covariates,as.double(beta0)),nrow=p)
 
-  ## Plot
-  for(i in 1:p) {
-    ## Extract events of process i
-    ind <- which(hawkes$EL[,3]==i)
+  ## Apply link function
+  mat <- link(mat)*alpha
 
-    ## Create Plot
-    Y <- length(ind)+1
-    plot(0,0,type="n",xlim=c(0,T),ylim=c(0,Y),axes=FALSE,main=sprintf("Process %d",i),xlab="Time",ylab="Events")
-    axis(1)
-    axis(2)
-
-    ## Plot Count process
-    if(length(ind)>0) {
-      for(k in 1:length(ind)) {
-        if(k==1) {
-          lines(c(0,hawkes$EL[ind[k],4]),c(0,0))
-          if(k==length(ind)) {
-            lines(c(hawkes$EL[ind[k],4],T),c(k,k))
-          }
-        } else if(k==length(ind) & k>1) {
-          lines(c(hawkes$EL[ind[k-1],4],hawkes$EL[ind[k],4]),c(k-1,k-1))
-          lines(c(hawkes$EL[ind[k],4],T),c(k,k))
-        } else {
-          lines(c(hawkes$EL[ind[k-1],4],hawkes$EL[ind[k],4]),c(k-1,k-1))
-        }
-
-      }
-    } else {
-      lines(c(0,T),c(0,0))
-    }
-
-    ## Plot Intensity
-    lines(hawkes$EL[,4],hawkes$intensities[i,]/M*Y,lty=2)
-    axis(4,at=0:Y,labels=(0:Y)/Y*M)
-  }
-}
-compute_lest_squares_theta <- function(par,covariates,C,alpha,hawkes,link) {
-  p <- dim(C)[1]
-  q <- length(par)-1
-  beta <- par[1:q]
-  gamma <- par[q+1]
-  L <- length(covariates$times)
-  T <- covariates$times[L]
-
-  ## Multiply covariates with beta
-  mat <- matrix(.Call("multiply_covariates",covariates,as.double(beta)),nrow=p)
-
-  ## Apply link function to obtain nu0
-  nu0 <- link(mat)
-
-  ## Compute Matrix V
-  V <- Diagonal(p,rowSums(t(t(nu0[,-L]^2)*(covariates$times[-1]-covariates$times[-L]))))
-
-  ## Compute Vector v
-  v <- .Call("compute_vector_v",hawkes$EL,nu0,covariates$times)
-
-  ## Compute Gamma
-  Gamma <- matrix(.Call("compute_gamma",as.integer(p),hawkes$EL,as.double(gamma),as.double(T)),ncol=p,nrow=p)
-
-  ## Compute G
-  G <- matrix(.Call("compute_G",as.integer(p),hawkes$EL,as.double(gamma),as.double(T),nu0,covariates$times),ncol=p,nrow=p)
-
-  ## Compute A
-  A <- matrix(.Call("compute_A",as.integer(p),hawkes$EL,as.double(gamma),as.double(T)),ncol=p,nrow=p)
-
-  ## Compute Least squares criterion
-  LS <- as.numeric(matrix(alpha,nrow=1)%*%V%*%matrix(alpha,ncol=1)+sum(diag(C%*%Gamma%*%t(C)))+2*sum(alpha*diag(C%*%t(G)))-2*sum(alpha*v)-2*sum(diag(C%*%t(A))))
-
-  return(LS)
+  return(mat)
 }
 
-estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=TRUE,print.level=3,max_iteration=100,tol=0.00001,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=exp,observation_matrix=NULL) {
+
+
+#' Fits a Network Hawkes Model with Covariates
+#'
+#' `estimate_hawkes` estimates the parameter of the Hawkes Causal Model as
+#' described in the paper. It requires a covariate process, cf.
+#' [simulate_hawkes()] for a description, the LASSO parameters and lower and
+#' upper bounds on the parameters as inputs. The observed point process is
+#' provided as a list in the same format as returned by [simulate_hawkes()]
+#'
+#' The estimation is an iterative procedure as mentioned in the paper. In each
+#' iteration, we first update `C`, then `alpha` and then `beta` and `gamma`.
+#' Therefore, initial values are required for all parameters other than `C`, cf.
+#' the corresponding parameters of the function. These iterations are repeated
+#' until the maximum number of iterations is reached or until the change of the
+#' parameters after one iteration lies below the threshold. It is possible to
+#' provide values for `beta` and `gamma` and to estimate only `C` and `alpha`.
+#'
+#' @inheritParams simulate_hawkes
+#' @param covariates Covariate information, its exact format is described in the
+#'   Details of [simulate_hawkes()].
+#' @param hawkes The observed point process. This is a list with at least the
+#'   element `EL`. This element needs to have the same matrix form as in the
+#'   output of [simulate_hawkes()].
+#' @param omega Vector of length p (number of vertices), containing non-negative
+#'   tuning parameter for the LASSO penalty for the corresponding row of the
+#'   adjacency matrix.
+#' @param omega_alpha A non-negative number, containing the tuning parameter for
+#'   the LASSO penalty with respect to the individuals intensities a.
+#' @param lb,ub Vectors of length q+1, q equals the dimension of covariates. The
+#'   first q entries of `lb` and `ub` provide lower and upper bounds on beta,
+#'   respectively. The last entry provides a lower (resp. upper) bound on gamma.
+#' @param fit_theta Logical value, if TRUE (the default) the parameters beta and
+#'   gamma are also fitted. If FALSE, beta and gamma are fixed equal to the
+#'   provided values in `beta_init`, `gamma_init`.
+#' @param print.level Integer which specifies how much information about the
+#'   iteration should be printed: 0 (the default) means no information, 1
+#'   provides some information and any number larger than 1 results in printing
+#'   of all intermediate steps. Note that the nloptr print.level is always equal
+#'   to 0.
+#' @param max_iteration Maximal number of iterations after which the iteration
+#'   is stopped. Default is 100.
+#' @param tol When the parameters have changed after one iteration less than the
+#'   value provided in `tol`, the iteration is stopped and the current value is
+#'   returned as the result. The default is 0.00001.
+#' @param beta_init,gamma_init If `fit_theta=FALSE` these parameters provide
+#'   starting values for beta and gamma, respectively. If `NULL` (the default),
+#'   the middle between `lb` and `ub` is chosen. If `fit_theta=FALSE`, see
+#'   `fit_theta`. In this case both `beta_init` and `gamma_init` must be
+#'   specified.
+#' @param alpha_init Vector of initial values for alpha, unless it is `NULL`
+#'   (the default) in which case all alphas are initialized with 1.
+#' @param observation_matrix If `NULL` (the default), the observation matrix is
+#'   computed within `estimate_hawkes`. For a single call of `estimate_hawkes`
+#'   this makes no difference. However, for repeated calls it might be more
+#'   efficient to compute the matrix using [create_observation_matrix()] and
+#'   pass it as a parameter here.
+#'
+#' @returns Returns a list with the elements `C`, `alpha`, `beta`, and `gamma`
+#'   which contain the estimates for the respective parameters.
+#'
+#' @export
+estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=TRUE,print.level=0,max_iteration=100,tol=0.00001,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=exp,observation_matrix=NULL) {
   p <- dim(covariates$cov[[1]])[1]
   q <- dim(covariates$cov[[1]])[2]
   L <- length(covariates$times)
@@ -259,7 +324,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     ##### Estimate theta=(beta,gamma) if asked to do so
     if(fit_theta) {
       if(iteration %% 10==1) {
-        out <- nloptr(c(beta,gamma),compute_lest_squares_theta,opts=optimization_args,ub=ub,lb=lb,covariates=covariates,C=C,alpha=alpha,hawkes=hawkes,link=link)
+        out <- nloptr::nloptr(c(beta,gamma),compute_lest_squares_theta,opts=optimization_args,ub=ub,lb=lb,covariates=covariates,C=C,alpha=alpha,hawkes=hawkes,link=link)
         beta <- out$solution[1:q]
         gamma <- out$solution[q+1]
 
@@ -307,6 +372,31 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
   return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
 }
 
+
+#' De-Bias a Given Estimator
+#'
+#' `debias_hawkes` takes an estimator, e.g., computed through
+#' [estimate_hawkes()] and performs the de-biasing on the estimates for `beta`
+#' and `gamma`.
+#'
+#' De-Biasing is required in order to remove the bias from `beta` and `gamma`
+#' which is introduced in [estimate_hawkes()] due to the LASSO penalty.
+#'
+#' @inheritParams estimate_hawkes
+#' @param est_hawkes An estimated Hawkes Causal Model, the estimate has to be
+#'   formatted as the output of [estimate_hawkes()].
+#'
+#' @returns `debias_hawkes` returns a list with the following elements:
+#'  * `grad`: A vector containing the derivative of the criterion function.
+#'  * `Sigma`: A matrix containing the second derivative of the criterion
+#'    function.
+#'  * `Theta`: Matrix with q+1 rows (q being the dimension of the covariates)
+#'    containing the first q+1 rows of the approximation of the inverse of Sigma
+#'    via node-wise LASSO.
+#'  * `beta_debiased`: De-biased estimate for beta.
+#'  * `gamma_debiased`: De-biased estimate for gamma.
+#'
+#' @export
 debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matrix=NULL) {
   p <- length(est_hawkes$alpha)
   q <- length(est_hawkes$beta)
@@ -453,8 +543,38 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   return(list(grad=grad,Sigma=Sigma,Theta=Theta,beta_debiased=theta_debiased[1:q],gamma_debiased=theta_debiased[q+1]))
 }
 
-## Computes the complete estimator with all stages
-NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,print.level=2,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL) {
+#' Computes a Complete Estimator with All Stages
+#'
+#' `NetHawkes` combines the functions `estimate_hawkes` and `debias_Hawkes` in a
+#' two-step procedure: Estimate all parameters in the first stage, de-bias
+#' `beta` and `gamma`, and fit, in a second stage, `C` and `alpha` keeping the
+#' de-biased values of `beta` and `gamma` fixed.
+#'
+#' @inheritParams estimate_hawkes
+#' @param print.level Passed to [estimate_hawkes()]. If positive, in addition,
+#'   information about in which stage the estimation is, is printed. The default
+#'   is 0.
+#' @param observation_matrix_network,observation_matrix_debiasing Similarly as
+#'   in [estimate_hawkes()] these matrices are automatically computed when
+#'   `NULL` is provided here (the default). Since the matrix is the same in
+#'   repeated calls, it can lead to a speed up to compute the matrices once
+#'   using [create_observation_matrix()]. The `observation_matrix_network` is of
+#'   dimension `p` and the `observation_matrix_debiasing` is of dimension
+#'   `1+q+p+p^2-1`. Here `p` denotes the number of vertices and `q` the
+#'   dimension of the covariates.
+#'
+#' @return `NetHawkes` returns a list containing the elements:
+#'   * `first_stage`: The estimator from the first stage as returned by
+#'     [estimate_hawkes()]. It is computed using no initial values and
+#'     estimating all model parameters.
+#'   * `second_stage`: The estimator from the second stage as returned by
+#'     [estimate_hawkes()]. It is computed fixing the values of `beta` and
+#'     `gamma` to the de-biased estimators, and updating only `C` and `alpha`.
+#'   * `debiasing`: The output of [debias_Hawkes()] from de-biasing the first
+#'     stage estimator.
+#'
+#' @export
+NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL) {
   ## Perform first stage estimation
   if(print.level>0) {
     cat("Perform the first stage estimation.\n")
@@ -476,13 +596,19 @@ NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,print.level=2,ma
   return(list(first_stage=est_first_stage,second_stage=est_second_stage,debiasing=debiased_est))
 }
 
-
-## Computes the observation matrices Xtilde and Xbar for dimension n
-## Input:
-## n - The dimension of the required matrix
-## Output: List of the following two matrices:
-## tildeX    - Matrix \tilde{X}_n of dimension 3n/2 x n or (3n+1)/2 x n.
-## tildeXinv - Matrix \overline{X}_n of dimension n x n.
+#' Compute Observation Matrix
+#'
+#' The observation matrix of dimension n required to handle the missing
+#' intercept in the model is computed. For details please see our paper.
+#'
+#' The usage of this function is explained in the documentations for
+#' [estimate_hawkes()] and [debias_Hawkes()]
+#'
+#' @param n Integer, the dimension of the required matrix.
+#'
+#' @return The observation matrix of the required dimension.
+#'
+#' @export
 create_observation_matrix <- function(n) {
   if(n %% 2==0) {
     ev <- n/2
@@ -539,9 +665,95 @@ create_observation_matrix <- function(n) {
   return(t(M))
 }
 
+#' Plot Intensity Functions and Hawkes Processes
+#'
+#' `plot_count_intensities` plots the provided Hawkes processes along with their
+#' intensity functions. A plot window the provides enough space to plot a graph
+#' for each vertex must be available before calling the function.
+#'
+#' @inheritParams simulate_hawkes
+#' @param hawkes A Hawkes process in the form of a list with at least the
+#'   elements `EL` and `intensities` in the form as described in
+#'   [simulate_hawkes()].
+#'
+#' @returns `plot_count_intensities` generates `p` plots (one for each vertex).
+#'   The plots show the realized Hawkes processes and the corresponding
+#'   intensities. Before calling the function a plot window of the necessary
+#'   size has to be created.
+#' @export
+plot_count_intensities <- function(hawkes,T) {
+  ## Read Information
+  p <- dim(hawkes$intensities)[1]
+  M <- max(hawkes$intensities)
+
+  ## Plot
+  for(i in 1:p) {
+    ## Extract events of process i
+    ind <- which(hawkes$EL[,3]==i)
+
+    ## Create Plot
+    Y <- length(ind)+1
+    plot(0,0,type="n",xlim=c(0,T),ylim=c(0,Y),axes=FALSE,main=sprintf("Process %d",i),xlab="Time",ylab="Events")
+    axis(1)
+    axis(2)
+
+    ## Plot Count process
+    if(length(ind)>0) {
+      for(k in 1:length(ind)) {
+        if(k==1) {
+          lines(c(0,hawkes$EL[ind[k],4]),c(0,0))
+          if(k==length(ind)) {
+            lines(c(hawkes$EL[ind[k],4],T),c(k,k))
+          }
+        } else if(k==length(ind) & k>1) {
+          lines(c(hawkes$EL[ind[k-1],4],hawkes$EL[ind[k],4]),c(k-1,k-1))
+          lines(c(hawkes$EL[ind[k],4],T),c(k,k))
+        } else {
+          lines(c(hawkes$EL[ind[k-1],4],hawkes$EL[ind[k],4]),c(k-1,k-1))
+        }
+
+      }
+    } else {
+      lines(c(0,T),c(0,0))
+    }
+
+    ## Plot Intensity
+    lines(hawkes$EL[,4],hawkes$intensities[i,]/M*Y,lty=2)
+    axis(4,at=0:Y,labels=(0:Y)/Y*M)
+  }
+}
+
+#' Visualize Estimated Hawkes Causal Model in a Graph
+#'
+#' An estimate returned via [estimate_hawkes()] is visualized as a network.
+#' Moreover, the network is returned. The use of this functions requires the
+#' package igraph.
+#'
+#' `plot_interactions` generates a weighted network. The edge weights correspond
+#' to the estimated values in `C` (potentially scaled by the value of
+#' `edge.scaling`). The sizes of the vertices are such that there area is
+#' proportional to `(0.1+sqrt(alpha))^2`, where `alpha` is the baseline activity
+#' of the corresponding vertex (potentially multiplied with `vertex.scaling`).
+#' The vertex names in the graph can be specified through `vertex.names`.
+#'
+#' @param estHawkes An estimated Hawkes process as returned from
+#'   [estimate_hawkes()].
+#' @param vertex.scaling,edge.scaling Non-negative numbers (1, by default) which
+#'   scale edge weights and vertex sizes.
+#' @param vertex.names Potential names of the vertices in the output graph, can
+#'   be `NULL` (the default).
+#' @param show.plot Logical value, if `TRUE` (the default) the network is
+#'   plotted, otherwise the network is only returned but not plotted.
+#' @param ... Additional arguments passed to the plotting routine of igraph if
+#'   `show.plot=TRUE`.
+#'
+#' @returns `plot_interactions` returns an igraph object with the properties
+#'   described under details. If `show.plot=TRUE`, the network is in addition
+#'   plotted.
+#' @export
 plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.names=NULL,show.plot=TRUE,...) {
   ## Create Network
-  G <- graph_from_adjacency_matrix(edge.scaling*estHawkes$C,mode="directed",weighted="weight")
+  G <- igraph::graph_from_adjacency_matrix(edge.scaling*estHawkes$C,mode="directed",weighted="weight")
 
   ## Change Vertex names if applicable
   if(!is.null(vertex.names)) {
@@ -554,8 +766,55 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
     node_sizes <- vertex.scaling*(0.1+sqrt(estHawkes$alpha))
 
     ## Plot
-    plot(G,vertex.size=node_sizes,edge.width=E(G)$weight,...)
+    igraph::plot(G,vertex.size=node_sizes,edge.width=E(G)$weight,...)
   }
 
   return(G)
+}
+
+
+
+
+
+
+
+
+
+
+
+
+#### The functions below are typically not directly called by the user.
+compute_lest_squares_theta <- function(par,covariates,C,alpha,hawkes,link) {
+  p <- dim(C)[1]
+  q <- length(par)-1
+  beta <- par[1:q]
+  gamma <- par[q+1]
+  L <- length(covariates$times)
+  T <- covariates$times[L]
+
+  ## Multiply covariates with beta
+  mat <- matrix(.Call("multiply_covariates",covariates,as.double(beta)),nrow=p)
+
+  ## Apply link function to obtain nu0
+  nu0 <- link(mat)
+
+  ## Compute Matrix V
+  V <- Diagonal(p,rowSums(t(t(nu0[,-L]^2)*(covariates$times[-1]-covariates$times[-L]))))
+
+  ## Compute Vector v
+  v <- .Call("compute_vector_v",hawkes$EL,nu0,covariates$times)
+
+  ## Compute Gamma
+  Gamma <- matrix(.Call("compute_gamma",as.integer(p),hawkes$EL,as.double(gamma),as.double(T)),ncol=p,nrow=p)
+
+  ## Compute G
+  G <- matrix(.Call("compute_G",as.integer(p),hawkes$EL,as.double(gamma),as.double(T),nu0,covariates$times),ncol=p,nrow=p)
+
+  ## Compute A
+  A <- matrix(.Call("compute_A",as.integer(p),hawkes$EL,as.double(gamma),as.double(T)),ncol=p,nrow=p)
+
+  ## Compute Least squares criterion
+  LS <- as.numeric(matrix(alpha,nrow=1)%*%V%*%matrix(alpha,ncol=1)+sum(diag(C%*%Gamma%*%t(C)))+2*sum(alpha*diag(C%*%t(G)))-2*sum(alpha*v)-2*sum(diag(C%*%t(A))))
+
+  return(LS)
 }
