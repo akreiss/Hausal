@@ -248,7 +248,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
       decompGamma <- eigen(Gamma,symmetric=TRUE)
       if(sum(decompGamma$values<=0)>0) {
         if(sum(decompGamma$values<0)>0) {
-          warning("Gamma has negative eigenvalues. In theory this cannot happen. Either there is a mistake in the program or this is due to numerical inaccuracies. This taken care of in an ad-hoc fashion.")
+          warning("Gamma has negative eigenvalues. In theory this cannot happen. Either there is a mistake in the program or this is due to numerical inaccuracies. This is taken care of in an ad-hoc fashion.")
         }
         ind <- which(decompGamma$values>0)
 
@@ -283,9 +283,9 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
 
       ## Compute Matrix V
       #      print("Compute V")
-      V <- Diagonal(p,rowSums(t(t(nu0[,-L]^2)*(covariates$times[-1]-covariates$times[-L]))))
-      Vsqrt <- Diagonal(p,sqrt(diag(V)))
-      Vsqrt_inv <- Diagonal(p,1/sqrt(diag(V)))
+      V <- Matrix::Diagonal(p,rowSums(t(t(nu0[,-L]^2)*(covariates$times[-1]-covariates$times[-L]))))
+      Vsqrt <- Matrix::Diagonal(p,sqrt(Matrix::diag(V)))
+      Vsqrt_inv <- Matrix::Diagonal(p,1/sqrt(Matrix::diag(V)))
 
       ## Compute Vector v
       #      print("Compute vector v")
@@ -306,8 +306,10 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     ## Perform LASSO estimation for each vertex
     for(i in 1:p) {
       sdY <- sd(Y[,i])*sqrt((p-1)/p)
-      LASSO <- glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
+      cat("i=",i,", sd=",sdY,".\n")
+      LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
       C[i,] <- coef(LASSO,s=omega[i]*p*T/(m*sdY^2))[-1]
+      print(C[i,])
     }
 
 
@@ -317,7 +319,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
 
     ## Perform LASSO estimation for alpha
     sdY <- sd(Y)*sqrt((p-1)/p)
-    LASSO <- glmnet(M_alpha/sdY,Y/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
+    LASSO <- glmnet::glmnet(M_alpha/sdY,Y/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
     alpha <- coef(LASSO,s=omega_alpha*p*T/(m*sdY^2))[-1]
 
 
@@ -528,7 +530,7 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
     Z <- as.numeric(tildeX%*%X[,j])
     M <- as.matrix(tildeX%*%X[,-j])
 
-    node_wise_lasso <- cv.glmnet(M,Z,penalty.factor=c(rep(0,q),rep(1,p+p^2)),intercept=FALSE,nfolds=5,standardize=FALSE)
+    node_wise_lasso <- glmnet::cv.glmnet(M,Z,penalty.factor=c(rep(0,q),rep(1,p+p^2)),intercept=FALSE,nfolds=5,standardize=FALSE)
     vec <- coef(node_wise_lasso)[-1]
 
     tau <- as.numeric(matrix(Sigma_eigen$vectors[j,],nrow=1)%*%Lambda%*%(matrix(t(Sigma_eigen$vectors)[,j],ncol=1)-t(Sigma_eigen$vectors)[,-j]%*%vec))/(p*T)
@@ -653,7 +655,7 @@ create_observation_matrix <- function(n) {
   x[ind] <- -2/sqrt(6)
 
   ## Create Matrix
-  M <- sparseMatrix(i=i,j=j,x=x)
+  M <- Matrix::sparseMatrix(i=i,j=j,x=x)
 
   ## Last row requires modification for odd n
   if(n %%2 ==1) {
@@ -662,7 +664,7 @@ create_observation_matrix <- function(n) {
     M[n,n+od] <- -1/sqrt(2)
   }
 
-  return(t(M))
+  return(Matrix::t(M))
 }
 
 #' Plot Intensity Functions and Hawkes Processes
@@ -757,7 +759,7 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
 
   ## Change Vertex names if applicable
   if(!is.null(vertex.names)) {
-    V(G)$name <- vertex.names
+    igraph::V(G)$name <- vertex.names
   }
 
   ## Create Plot if asked
@@ -766,7 +768,7 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
     node_sizes <- vertex.scaling*(0.1+sqrt(estHawkes$alpha))
 
     ## Plot
-    igraph::plot(G,vertex.size=node_sizes,edge.width=E(G)$weight,...)
+    igraph::plot(G,vertex.size=node_sizes,edge.width=igraph::E(G)$weight,...)
   }
 
   return(G)
