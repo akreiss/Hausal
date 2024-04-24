@@ -243,7 +243,6 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     #### Compute Auxiliary Matrices and vectors if there was a change in beta and gamma
     if(BETA_GAMMA_CHANGE) {
       ## Compute Gamma
-      #      print("Compute Gamma")
       Gamma <- matrix(.Call("compute_gamma",as.integer(p),hawkes$EL,as.double(gamma),as.double(T)),ncol=p,nrow=p)
       decompGamma <- eigen(Gamma,symmetric=TRUE)
       if(sum(decompGamma$values<=0)>0) {
@@ -264,7 +263,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
       Gamma_sqrt_inv <- decompGamma$vectors%*%diag(eigen_sqrt_inv)%*%t(decompGamma$vectors)
 
       ## Compute design for LASSO estimation in C
-      M_C <- as.matrix(Xtilde%*%diag(eigen_sqrt)%*%t(decompGamma$vectors))
+      M_C <- as.matrix(Xtilde%*%decompGamma$vectors%*%diag(eigen_sqrt)%*%t(decompGamma$vectors))
 
       ## Compute A
       #      print("Compute A")
@@ -301,7 +300,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
 
     #### Estimate C
     ## Compute response for LASSO estimation
-    Y <- Xtilde%*%t(decompGamma$vectors)%*%Gamma_sqrt_inv%*%(t(A)-t(alpha*G))
+    Y <- Xtilde%*%Gamma_sqrt_inv%*%(t(A)-t(alpha*G))
 
     ## Perform LASSO estimation for each vertex
     for(i in 1:p) {
@@ -520,27 +519,28 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
 
   #### Compute Nodewise LASSO for the first columns of Sigma corresponding to beta and gamma
   ## Compute sqrt of Sigma
-  Sigma_eigen <- eigen(Sigma*(p*T))
-  Lambda <- Diagonal(1+q+p+p^2,Sigma_eigen$values)
+#  Sigma_eigen <- eigen(Sigma*(p*T))
+#  Lambda <- Diagonal(1+q+p+p^2,Sigma_eigen$values)
 
   ## Compute Nodewise LASSO
   Theta <- matrix(NA,ncol=1+q+p+p^2,nrow=q+1)
   for(j in 1:(q+1)) {
-    X <- t(t(Sigma_eigen$vectors)[,-j])%*%Lambda%*%t(Sigma_eigen$vectors)
+    # X <- t(t(Sigma_eigen$vectors)[,-j])%*%Lambda%*%t(Sigma_eigen$vectors)
+    X <- Sigma[-j,]
     Z <- as.numeric(tildeX%*%X[,j])
     M <- as.matrix(tildeX%*%X[,-j])
 
     node_wise_lasso <- glmnet::cv.glmnet(M,Z,penalty.factor=c(rep(0,q),rep(1,p+p^2)),intercept=FALSE,nfolds=5,standardize=FALSE)
     vec <- coef(node_wise_lasso)[-1]
 
-    tau <- as.numeric(matrix(Sigma_eigen$vectors[j,],nrow=1)%*%Lambda%*%(matrix(t(Sigma_eigen$vectors)[,j],ncol=1)-t(Sigma_eigen$vectors)[,-j]%*%vec))/(p*T)
+    tau <- as.numeric(Sigma[j,j]-matrix(Sigma[j,-j],nrow=1)%*%vec)
 
     Theta[j,-j] <- -vec/tau
     Theta[j,j] <- 1/tau
   }
 
   ## Compute De-Biased Estimator
-  theta_debiased <- c(est_hawkes$beta,est_hawkes$gamma)+Theta%*%matrix(grad,ncol=1)
+  theta_debiased <- c(est_hawkes$beta,est_hawkes$gamma)-Theta%*%matrix(grad,ncol=1)
 
   return(list(grad=grad,Sigma=Sigma,Theta=Theta,beta_debiased=theta_debiased[1:q],gamma_debiased=theta_debiased[q+1]))
 }
