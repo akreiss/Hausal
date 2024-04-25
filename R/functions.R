@@ -305,10 +305,10 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     ## Perform LASSO estimation for each vertex
     for(i in 1:p) {
       sdY <- sd(Y[,i])*sqrt((p-1)/p)
-      cat("i=",i,", sd=",sdY,".\n")
+#      cat("i=",i,", sd=",sdY,".\n")
       LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
       C[i,] <- coef(LASSO,s=omega[i]*p*T/(m*sdY^2))[-1]
-      print(C[i,])
+#      print(C[i,])
     }
 
 
@@ -480,19 +480,19 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   for(k in 1:q) {
     for(l in k:q) {
       ## Second derivatives with respect to beta
-      Sigma[k,l] <- (sum(est_hawkes$alpha^2*Vderivs[[2]][[k]][,l])+2*sum(alpha*diag(est_hawkes$C%*%t(Gderivs[[5]][[k]][[l]])))-2*sum(alpha*vecvderivs[[2]][[k]][,l]))/(p*T)
+      Sigma[k,l] <- (sum(est_hawkes$alpha^2*Vderivs[[2]][[k]][,l])+2*sum(est_hawkes$alpha*diag(est_hawkes$C%*%t(Gderivs[[5]][[k]][[l]])))-2*sum(est_hawkes$alpha*vecvderivs[[2]][[k]][,l]))/(p*T)
       Sigma[l,k] <- Sigma[k,l]
     }
     ## Derivative with respect to gamma and beta
-    Sigma[q+1,k] <- 2*sum(alpha*diag(C%*%t(Gderivs[[4]][[k]])))/(p*T)
+    Sigma[q+1,k] <- 2*sum(est_hawkes$alpha*diag(est_hawkes$C%*%t(Gderivs[[4]][[k]])))/(p*T)
     Sigma[k,q+1] <- Sigma[q+1,k]
 
     ## Derivatives with respect to alpha and beta
-    Sigma[k,(q+2):(q+1+p)] <- as.numeric(2*Diagonal(p,Vderivs[[1]][,k])%*%est_hawkes$alpha+2*diag(C%*%t(Gderivs[[3]][[k]]))-2*vecvderivs[[1]][,k])/(p*T)
+    Sigma[k,(q+2):(q+1+p)] <- as.numeric(2*Matrix::Diagonal(p,Vderivs[[1]][,k])%*%est_hawkes$alpha+2*diag(est_hawkes$C%*%t(Gderivs[[3]][[k]]))-2*vecvderivs[[1]][,k])/(p*T)
     Sigma[(q+2):(q+1+p),k] <- Sigma[k,(q+2):(q+1+p)]
 
     ## Derivatives with respect to C and beta
-    Sigma[k,(q+1+p+1):(q+1+p+p^2)] <- as.numeric(2*Diagonal(p,est_hawkes$alpha)%*%Gderivs[[3]][[k]])/(p*T)
+    Sigma[k,(q+1+p+1):(q+1+p+p^2)] <- as.numeric(2*Matrix::Diagonal(p,est_hawkes$alpha)%*%Gderivs[[3]][[k]])/(p*T)
     Sigma[(q+1+p+1):(q+1+p+p^2),k] <- Sigma[k,(q+1+p+1):(q+1+p+p^2)]
   }
 
@@ -504,7 +504,7 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   Sigma[(q+2):(q+1+p),q+1] <- Sigma[q+1,(q+2):(q+1+p)]
 
   ## Derivative with respect to gamma and C
-  Sigma[q+1,(q+1+p+1):(q+1+p+p^2)] <- as.numeric(est_hawkes$C%*%Gammaderivs[[1]]+est_hawkes$C%*%t(Gammaderivs[[1]])+2*Diagonal(p,est_hawkes$alpha)%*%Gderivs[[1]]-2*Aderivs[[1]])/(p*T)
+  Sigma[q+1,(q+1+p+1):(q+1+p+p^2)] <- as.numeric(est_hawkes$C%*%Gammaderivs[[1]]+est_hawkes$C%*%t(Gammaderivs[[1]])+2*Matrix::Diagonal(p,est_hawkes$alpha)%*%Gderivs[[1]]-2*Aderivs[[1]])/(p*T)
   Sigma[(q+1+p+1):(q+1+p+p^2),q+1] <- Sigma[q+1,(q+1+p+1):(q+1+p+p^2)]
 
   ## Second derivative with respect to alpha
@@ -801,7 +801,7 @@ compute_lest_squares_theta <- function(par,covariates,C,alpha,hawkes,link) {
   nu0 <- link(mat)
 
   ## Compute Matrix V
-  V <- Diagonal(p,rowSums(t(t(nu0[,-L]^2)*(covariates$times[-1]-covariates$times[-L]))))
+  V <- Matrix::Diagonal(p,rowSums(t(t(nu0[,-L]^2)*(covariates$times[-1]-covariates$times[-L]))))
 
   ## Compute Vector v
   v <- .Call("compute_vector_v",hawkes$EL,nu0,covariates$times)
