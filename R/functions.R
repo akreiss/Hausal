@@ -305,10 +305,18 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     ## Perform LASSO estimation for each vertex
     for(i in 1:p) {
       sdY <- sd(Y[,i])*sqrt((p-1)/p)
-#      cat("i=",i,", sd=",sdY,".\n")
-      LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
-      C[i,] <- coef(LASSO,s=omega[i]*p*T/(m*sdY^2))[-1]
-#      print(C[i,])
+
+      if(sdY==0) {
+        ## Y[,i] is identical to zero, in this case the zero vector provides a
+        ## perfect solution to the LASSO problem, however, glmnet requires sdY>0
+        ## to work properly.
+        C[i,] <- 0
+
+      } else {
+        ## Perform LASSO estimation
+        LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
+        C[i,] <- coef(LASSO,s=omega[i]*p*T/(m*sdY^2))[-1]
+      }
     }
 
 
@@ -534,6 +542,11 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
     vec <- coef(node_wise_lasso)[-1]
 
     tau <- as.numeric(Sigma[j,j]-matrix(Sigma[j,-j],nrow=1)%*%vec)
+    if(tau==0) {
+      ## If tau=0 replace by one and print a warning, this is not ideal
+      warning("The Sigma matrix in the debiasing has an almost zero column.")
+      tau <- 1
+    }
 
     Theta[j,-j] <- -vec/tau
     Theta[j,j] <- 1/tau
@@ -768,7 +781,7 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
     node_sizes <- vertex.scaling*(0.1+sqrt(estHawkes$alpha))
 
     ## Plot
-    igraph::plot(G,vertex.size=node_sizes,edge.width=igraph::E(G)$weight,...)
+    igraph::plot.igraph(G,vertex.size=node_sizes,edge.width=igraph::E(G)$weight,...)
   }
 
   return(G)
