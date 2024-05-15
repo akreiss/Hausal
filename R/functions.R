@@ -330,9 +330,22 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     alpha <- coef(LASSO,s=omega_alpha*p*T/(m*sdY^2))[-1]
 
 
+    #### Compute progress in alpha and C
+    if(iteration==1) {
+      C_change <- 2*tol
+    } else {
+      C_change <- max(abs(C-C_old))
+    }
+     alpha_change <- max(abs(alpha-alpha_old))
+    alphaC_change <- max(c(C_change,alpha_change))
+
+
     ##### Estimate theta=(beta,gamma) if asked to do so
     if(fit_theta) {
-      if(iteration %% 10==1 | iteration==max_iteration) {
+      if(alphaC_change<tol | iteration %% 10==1 | iteration==max_iteration) {
+        if(print.level>1) {
+          cat("Refit theta\n")
+        }
         out <- nloptr::nloptr(c(beta,gamma),compute_lest_squares_theta,opts=optimization_args,ub=ub,lb=lb,covariates=covariates,C=C,alpha=alpha,hawkes=hawkes,link=link)
         beta <- out$solution[1:q]
         gamma <- out$solution[q+1]
@@ -344,13 +357,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
       }
     }
 
-    #### Compute Progress
-    if(iteration==1) {
-      C_change <- 2*tol
-    } else {
-      C_change <- max(abs(C-C_old))
-    }
-    alpha_change <- max(abs(alpha-alpha_old))
+    #### Compute overall progress
     max_change <- max(c(C_change,alpha_change,par_change))
 
     #### Print Status
