@@ -332,7 +332,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
 
     ##### Estimate theta=(beta,gamma) if asked to do so
     if(fit_theta) {
-      if(iteration %% 10==1) {
+      if(iteration %% 10==1 | iteration==max_iteration) {
         out <- nloptr::nloptr(c(beta,gamma),compute_lest_squares_theta,opts=optimization_args,ub=ub,lb=lb,covariates=covariates,C=C,alpha=alpha,hawkes=hawkes,link=link)
         beta <- out$solution[1:q]
         gamma <- out$solution[q+1]
@@ -369,7 +369,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     #### Compute if Termination criterion met
     if(max_change<tol) {
       TERMINATION_FLAG <- 1
-    } else if(iteration>max_iteration) {
+    } else if(iteration>=max_iteration) {
       TERMINATION_FLAG <- 1
     }
 
