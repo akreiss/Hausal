@@ -777,6 +777,9 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
   ## Create Network
   G <- igraph::graph_from_adjacency_matrix(edge.scaling*estHawkes$C,mode="directed",weighted="weight")
 
+  ## Add alpha as vertex attribute
+  igraph::V(G)$alpha <- estHawkes$alpha
+
   ## Change Vertex names if applicable
   if(!is.null(vertex.names)) {
     igraph::V(G)$name <- vertex.names
