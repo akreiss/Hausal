@@ -402,7 +402,7 @@ LASSO_single_line <- function(Y,i,p,T,M_C,omega,m) {
     ## Y[,i] is identical to zero, in this case the zero vector provides a
     ## perfect solution to the LASSO problem, however, glmnet requires sdY>0
     ## to work properly.
-    out <- 0
+    out <- rep(0,p)
 
   } else {
     ## Perform LASSO estimation
