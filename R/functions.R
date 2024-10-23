@@ -446,7 +446,7 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
 
   ## Check if Design Matrix is provided
   if(is.null(observation_matrix)) {
-    tildeX <- create_observation_matrix(1+q+p+p^2-1)
+    tildeX <- create_observation_matrix(1+q+p+p^2)
   } else {
     tildeX <- observation_matrix
   }
@@ -558,31 +558,26 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   Sigma[(q+1+p+1):(q+1+p+p^2),(q+1+p+1):(q+1+p+p^2)] <- matrix(.Call("compute_d2C_deriv",Gamma),nrow=p^2)/(p*T)
 
   #### Compute Nodewise LASSO for the first columns of Sigma corresponding to beta and gamma
-  ## Compute sqrt of Sigma
-#  Sigma_eigen <- eigen(Sigma*(p*T))
-#  Lambda <- Diagonal(1+q+p+p^2,Sigma_eigen$values)
-
   ## Compute Nodewise LASSO
-  Theta <- matrix(NA,ncol=1+q+p+p^2,nrow=q+1)
+  Theta_tilde <- matrix(NA,ncol=1+q+p+p^2,nrow=q+1)
   for(j in 1:(q+1)) {
-    # X <- t(t(Sigma_eigen$vectors)[,-j])%*%Lambda%*%t(Sigma_eigen$vectors)
-    X <- Sigma[-j,]
-    Z <- as.numeric(tildeX%*%X[,j])
-    M <- as.matrix(tildeX%*%X[,-j])
+    Z <- as.numeric(tildeX%*%Sigma[,j])
+    M <- as.matrix(tildeX%*%Sigma[,-j])
 
     node_wise_lasso <- glmnet::cv.glmnet(M,Z,penalty.factor=c(rep(0,q),rep(1,p+p^2)),intercept=FALSE,nfolds=5,standardize=FALSE)
     vec <- coef(node_wise_lasso)[-1]
 
-    tau <- as.numeric(Sigma[j,j]-matrix(Sigma[j,-j],nrow=1)%*%vec)
+    tau <- as.numeric((Sigma%*%Sigma)[j,j]-matrix((Sigma%*%Sigma)[j,-j],nrow=1)%*%vec)
     if(tau==0) {
       ## If tau=0 replace by one and print a warning, this is not ideal
       warning("The Sigma matrix in the debiasing has an almost zero column.")
       tau <- 1
     }
 
-    Theta[j,-j] <- -vec/tau
-    Theta[j,j] <- 1/tau
+    Theta_tilde[j,-j] <- -vec/tau
+    Theta_tilde[j,j] <- 1/tau
   }
+  Theta <- Theta_tilde%*%Sigma
 
   ## Compute De-Biased Estimator
   theta_debiased <- c(est_hawkes$beta,est_hawkes$gamma)-Theta%*%matrix(grad,ncol=1)
