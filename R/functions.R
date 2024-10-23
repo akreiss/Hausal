@@ -188,12 +188,16 @@ compute_baseline_intensities <- function(covariates,beta0,alpha,link=exp) {
 #'   this makes no difference. However, for repeated calls it might be more
 #'   efficient to compute the matrix using [create_observation_matrix()] and
 #'   pass it as a parameter here.
+#' @param cluster If `NULL` (the default) serial computations are executed. If a
+#'   cluster as returned by `makeCluster` is provided (after calling
+#'   `registerDoParallel(cluster)`), the estimation of C is executed in parallel.
+#'   This requires the packages `parallel`, `doParallel`, and `foreach`.
 #'
 #' @returns Returns a list with the elements `C`, `alpha`, `beta`, and `gamma`
 #'   which contain the estimates for the respective parameters.
 #'
 #' @export
-estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=TRUE,print.level=0,max_iteration=100,tol=0.00001,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=exp,observation_matrix=NULL) {
+estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=TRUE,print.level=0,max_iteration=100,tol=0.00001,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
   p <- dim(covariates$cov[[1]])[1]
   q <- dim(covariates$cov[[1]])[2]
   L <- length(covariates$times)
@@ -229,6 +233,11 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     alpha <- alpha_init
   }
   C <- matrix(NA,ncol=p,nrow=p)
+
+  #### Set dopar if in parallel mode
+  if(!is.null(cluster)) {
+    `%dopar%` <- foreach::`%dopar%`
+  }
 
   #### Perform Iterative Estimation
   C_old <- C
@@ -303,20 +312,18 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     Y <- Xtilde%*%Gamma_sqrt_inv%*%(t(A)-t(alpha*G))
 
     ## Perform LASSO estimation for each vertex
-    for(i in 1:p) {
-      sdY <- sd(Y[,i])*sqrt((p-1)/p)
-
-      if(sdY==0) {
-        ## Y[,i] is identical to zero, in this case the zero vector provides a
-        ## perfect solution to the LASSO problem, however, glmnet requires sdY>0
-        ## to work properly.
-        C[i,] <- 0
-
-      } else {
-        ## Perform LASSO estimation
-        LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
-        C[i,] <- coef(LASSO,s=omega[i]*p*T/(m*sdY^2))[-1]
+    if(is.null(cluster)) {
+      ## No parallel computation
+      for(i in 1:p) {
+        C[i,] <- LASSO_single_line(Y,i,p,T,M_C,omega,m)
       }
+    } else {
+      ## Do parallel computations in the provided cluster
+      par_out <- foreach::foreach(i=1:p,.combine=rbind,.packages=c('glmnet'),.inorder=FALSE) %dopar% {
+        c(i,LASSO_single_line(Y,i,p,T,M_C,omega,m))
+      }
+      ## Bring output in correct order
+      C <- par_out[order(par_out[,1]),-1]
     }
 
 
@@ -330,9 +337,22 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     alpha <- coef(LASSO,s=omega_alpha*p*T/(m*sdY^2))[-1]
 
 
+    #### Compute progress in alpha and C
+    if(iteration==1) {
+      C_change <- 2*tol
+    } else {
+      C_change <- max(abs(C-C_old))
+    }
+     alpha_change <- max(abs(alpha-alpha_old))
+    alphaC_change <- max(c(C_change,alpha_change))
+
+
     ##### Estimate theta=(beta,gamma) if asked to do so
     if(fit_theta) {
-      if(iteration %% 10==1) {
+      if(alphaC_change<tol | iteration %% 10==1 | iteration==max_iteration) {
+        if(print.level>1) {
+          cat("Refit theta\n")
+        }
         out <- nloptr::nloptr(c(beta,gamma),compute_lest_squares_theta,opts=optimization_args,ub=ub,lb=lb,covariates=covariates,C=C,alpha=alpha,hawkes=hawkes,link=link)
         beta <- out$solution[1:q]
         gamma <- out$solution[q+1]
@@ -344,13 +364,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
       }
     }
 
-    #### Compute Progress
-    if(iteration==1) {
-      C_change <- 2*tol
-    } else {
-      C_change <- max(abs(C-C_old))
-    }
-    alpha_change <- max(abs(alpha-alpha_old))
+    #### Compute overall progress
     max_change <- max(c(C_change,alpha_change,par_change))
 
     #### Print Status
@@ -369,7 +383,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     #### Compute if Termination criterion met
     if(max_change<tol) {
       TERMINATION_FLAG <- 1
-    } else if(iteration>max_iteration) {
+    } else if(iteration>=max_iteration) {
       TERMINATION_FLAG <- 1
     }
 
@@ -379,6 +393,24 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
   }
 
   return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
+}
+
+LASSO_single_line <- function(Y,i,p,T,M_C,omega,m) {
+  sdY <- sd(Y[,i])*sqrt((p-1)/p)
+
+  if(sdY==0) {
+    ## Y[,i] is identical to zero, in this case the zero vector provides a
+    ## perfect solution to the LASSO problem, however, glmnet requires sdY>0
+    ## to work properly.
+    out <- rep(0,p)
+
+  } else {
+    ## Perform LASSO estimation
+    LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
+    out <- coef(LASSO,s=omega[i]*p*T/(m*sdY^2))[-1]
+  }
+
+  return(out)
 }
 
 
@@ -589,12 +621,12 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
 #'     stage estimator.
 #'
 #' @export
-NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL) {
+NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL) {
   ## Perform first stage estimation
   if(print.level>0) {
     cat("Perform the first stage estimation.\n")
   }
-  est_first_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,fit_theta=TRUE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network)
+  est_first_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,fit_theta=TRUE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
 
   ## Debiasing
   if(print.level>0) {
@@ -606,7 +638,7 @@ NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,print.level=0,ma
   if(print.level>0) {
     cat("Compute second stage estimator.\n")
   }
-  est_second_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=debiased_est$beta_debiased,gamma_init=debiased_est$gamma_debiased,alpha_init=est_first_stage$alpha,link=link,observation_matrix=observation_matrix_network)
+  est_second_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=debiased_est$beta_debiased,gamma_init=debiased_est$gamma_debiased,alpha_init=est_first_stage$alpha,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
 
   return(list(first_stage=est_first_stage,second_stage=est_second_stage,debiasing=debiased_est))
 }
@@ -769,6 +801,9 @@ plot_count_intensities <- function(hawkes,T) {
 plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.names=NULL,show.plot=TRUE,...) {
   ## Create Network
   G <- igraph::graph_from_adjacency_matrix(edge.scaling*estHawkes$C,mode="directed",weighted="weight")
+
+  ## Add alpha as vertex attribute
+  igraph::V(G)$alpha <- estHawkes$alpha
 
   ## Change Vertex names if applicable
   if(!is.null(vertex.names)) {

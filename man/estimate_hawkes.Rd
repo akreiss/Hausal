@@ -19,7 +19,8 @@ estimate_hawkes(
   gamma_init = NULL,
   alpha_init = NULL,
   link = exp,
-  observation_matrix = NULL
+  observation_matrix = NULL,
+  cluster = NULL
 )
 }
 \arguments{
@@ -77,6 +78,11 @@ computed within \code{estimate_hawkes}. For a single call of \code{estimate_hawk
 this makes no difference. However, for repeated calls it might be more
 efficient to compute the matrix using \code{\link[=create_observation_matrix]{create_observation_matrix()}} and
 pass it as a parameter here.}
+
+\item{cluster}{If \code{NULL} (the default) serial computations are executed. If a
+cluster as returned by \code{makeCluster} is provided (after calling
+\code{registerDoParallel(cluster)}), the estimation of C is executed in parallel.
+This requires the packages \code{parallel}, \code{doParallel}, and \code{foreach}.}
 }
 \value{
 Returns a list with the elements \code{C}, \code{alpha}, \code{beta}, and \code{gamma}
