@@ -16,7 +16,8 @@ NetHawkes(
   tol = 1e-05,
   link = exp,
   observation_matrix_network = NULL,
-  observation_matrix_debiasing = NULL
+  observation_matrix_debiasing = NULL,
+  cluster = NULL
 )
 }
 \arguments{
@@ -34,11 +35,7 @@ adjacency matrix.}
 \item{omega_alpha}{A non-negative number, containing the tuning parameter for
 the LASSO penalty with respect to the individuals intensities a.}
 
-\item{lb}{Vectors of length q+1, q equals the dimension of covariates. The
-first q entries of \code{lb} and \code{ub} provide lower and upper bounds on beta,
-respectively. The last entry provides a lower (resp. upper) bound on gamma.}
-
-\item{ub}{Vectors of length q+1, q equals the dimension of covariates. The
+\item{lb, ub}{Vectors of length q+1, q equals the dimension of covariates. The
 first q entries of \code{lb} and \code{ub} provide lower and upper bounds on beta,
 respectively. The last entry provides a lower (resp. upper) bound on gamma.}
 
@@ -66,6 +63,11 @@ using \code{\link[=create_observation_matrix]{create_observation_matrix()}}. The
 dimension \code{p} and the \code{observation_matrix_debiasing} is of dimension
 \code{1+q+p+p^2-1}. Here \code{p} denotes the number of vertices and \code{q} the
 dimension of the covariates.}
+
+\item{cluster}{If \code{NULL} (the default) serial computations are executed. If a
+cluster as returned by \code{makeCluster} is provided (after calling
+\code{registerDoParallel(cluster)}), the estimation of C is executed in parallel.
+This requires the packages \code{parallel}, \code{doParallel}, and \code{foreach}.}
 }
 \value{
 \code{NetHawkes} returns a list containing the elements:

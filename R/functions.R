@@ -188,12 +188,16 @@ compute_baseline_intensities <- function(covariates,beta0,alpha,link=exp) {
 #'   this makes no difference. However, for repeated calls it might be more
 #'   efficient to compute the matrix using [create_observation_matrix()] and
 #'   pass it as a parameter here.
+#' @param cluster If `NULL` (the default) serial computations are executed. If a
+#'   cluster as returned by `makeCluster` is provided (after calling
+#'   `registerDoParallel(cluster)`), the estimation of C is executed in parallel.
+#'   This requires the packages `parallel`, `doParallel`, and `foreach`.
 #'
 #' @returns Returns a list with the elements `C`, `alpha`, `beta`, and `gamma`
 #'   which contain the estimates for the respective parameters.
 #'
 #' @export
-estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=TRUE,print.level=0,max_iteration=100,tol=0.00001,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=exp,observation_matrix=NULL) {
+estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=TRUE,print.level=0,max_iteration=100,tol=0.00001,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
   p <- dim(covariates$cov[[1]])[1]
   q <- dim(covariates$cov[[1]])[2]
   L <- length(covariates$times)
@@ -230,6 +234,11 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
   }
   C <- matrix(NA,ncol=p,nrow=p)
 
+  #### Set dopar if in parallel mode
+  if(!is.null(cluster)) {
+    `%dopar%` <- foreach::`%dopar%`
+  }
+
   #### Perform Iterative Estimation
   C_old <- C
   alpha_old <- alpha
@@ -243,12 +252,11 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     #### Compute Auxiliary Matrices and vectors if there was a change in beta and gamma
     if(BETA_GAMMA_CHANGE) {
       ## Compute Gamma
-      #      print("Compute Gamma")
       Gamma <- matrix(.Call("compute_gamma",as.integer(p),hawkes$EL,as.double(gamma),as.double(T)),ncol=p,nrow=p)
       decompGamma <- eigen(Gamma,symmetric=TRUE)
       if(sum(decompGamma$values<=0)>0) {
         if(sum(decompGamma$values<0)>0) {
-          warning("Gamma has negative eigenvalues. In theory this cannot happen. Either there is a mistake in the program or this is due to numerical inaccuracies. This taken care of in an ad-hoc fashion.")
+          warning("Gamma has negative eigenvalues. In theory this cannot happen. Either there is a mistake in the program or this is due to numerical inaccuracies. This is taken care of in an ad-hoc fashion.")
         }
         ind <- which(decompGamma$values>0)
 
@@ -264,7 +272,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
       Gamma_sqrt_inv <- decompGamma$vectors%*%diag(eigen_sqrt_inv)%*%t(decompGamma$vectors)
 
       ## Compute design for LASSO estimation in C
-      M_C <- as.matrix(Xtilde%*%diag(eigen_sqrt)%*%t(decompGamma$vectors))
+      M_C <- as.matrix(Xtilde%*%decompGamma$vectors%*%diag(eigen_sqrt)%*%t(decompGamma$vectors))
 
       ## Compute A
       #      print("Compute A")
@@ -283,9 +291,9 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
 
       ## Compute Matrix V
       #      print("Compute V")
-      V <- Diagonal(p,rowSums(t(t(nu0[,-L]^2)*(covariates$times[-1]-covariates$times[-L]))))
-      Vsqrt <- Diagonal(p,sqrt(diag(V)))
-      Vsqrt_inv <- Diagonal(p,1/sqrt(diag(V)))
+      V <- Matrix::Diagonal(p,rowSums(t(t(nu0[,-L]^2)*(covariates$times[-1]-covariates$times[-L]))))
+      Vsqrt <- Matrix::Diagonal(p,sqrt(Matrix::diag(V)))
+      Vsqrt_inv <- Matrix::Diagonal(p,1/sqrt(Matrix::diag(V)))
 
       ## Compute Vector v
       #      print("Compute vector v")
@@ -301,13 +309,21 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
 
     #### Estimate C
     ## Compute response for LASSO estimation
-    Y <- Xtilde%*%t(decompGamma$vectors)%*%Gamma_sqrt_inv%*%(t(A)-t(alpha*G))
+    Y <- Xtilde%*%Gamma_sqrt_inv%*%(t(A)-t(alpha*G))
 
     ## Perform LASSO estimation for each vertex
-    for(i in 1:p) {
-      sdY <- sd(Y[,i])*sqrt((p-1)/p)
-      LASSO <- glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
-      C[i,] <- coef(LASSO,s=omega[i]*p*T/(m*sdY^2))[-1]
+    if(is.null(cluster)) {
+      ## No parallel computation
+      for(i in 1:p) {
+        C[i,] <- LASSO_single_line(Y,i,p,T,M_C,omega,m)
+      }
+    } else {
+      ## Do parallel computations in the provided cluster
+      par_out <- foreach::foreach(i=1:p,.combine=rbind,.packages=c('glmnet'),.inorder=FALSE) %dopar% {
+        c(i,LASSO_single_line(Y,i,p,T,M_C,omega,m))
+      }
+      ## Bring output in correct order
+      C <- par_out[order(par_out[,1]),-1]
     }
 
 
@@ -317,13 +333,26 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
 
     ## Perform LASSO estimation for alpha
     sdY <- sd(Y)*sqrt((p-1)/p)
-    LASSO <- glmnet(M_alpha/sdY,Y/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
+    LASSO <- glmnet::glmnet(M_alpha/sdY,Y/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
     alpha <- coef(LASSO,s=omega_alpha*p*T/(m*sdY^2))[-1]
+
+
+    #### Compute progress in alpha and C
+    if(iteration==1) {
+      C_change <- 2*tol
+    } else {
+      C_change <- max(abs(C-C_old))
+    }
+     alpha_change <- max(abs(alpha-alpha_old))
+    alphaC_change <- max(c(C_change,alpha_change))
 
 
     ##### Estimate theta=(beta,gamma) if asked to do so
     if(fit_theta) {
-      if(iteration %% 10==1) {
+      if(alphaC_change<tol | iteration %% 10==1 | iteration==max_iteration) {
+        if(print.level>1) {
+          cat("Refit theta\n")
+        }
         out <- nloptr::nloptr(c(beta,gamma),compute_lest_squares_theta,opts=optimization_args,ub=ub,lb=lb,covariates=covariates,C=C,alpha=alpha,hawkes=hawkes,link=link)
         beta <- out$solution[1:q]
         gamma <- out$solution[q+1]
@@ -335,13 +364,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
       }
     }
 
-    #### Compute Progress
-    if(iteration==1) {
-      C_change <- 2*tol
-    } else {
-      C_change <- max(abs(C-C_old))
-    }
-    alpha_change <- max(abs(alpha-alpha_old))
+    #### Compute overall progress
     max_change <- max(c(C_change,alpha_change,par_change))
 
     #### Print Status
@@ -360,7 +383,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     #### Compute if Termination criterion met
     if(max_change<tol) {
       TERMINATION_FLAG <- 1
-    } else if(iteration>max_iteration) {
+    } else if(iteration>=max_iteration) {
       TERMINATION_FLAG <- 1
     }
 
@@ -370,6 +393,24 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
   }
 
   return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
+}
+
+LASSO_single_line <- function(Y,i,p,T,M_C,omega,m) {
+  sdY <- sd(Y[,i])*sqrt((p-1)/p)
+
+  if(sdY==0) {
+    ## Y[,i] is identical to zero, in this case the zero vector provides a
+    ## perfect solution to the LASSO problem, however, glmnet requires sdY>0
+    ## to work properly.
+    out <- rep(0,p)
+
+  } else {
+    ## Perform LASSO estimation
+    LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
+    out <- coef(LASSO,s=omega[i]*p*T/(m*sdY^2))[-1]
+  }
+
+  return(out)
 }
 
 
@@ -479,19 +520,19 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   for(k in 1:q) {
     for(l in k:q) {
       ## Second derivatives with respect to beta
-      Sigma[k,l] <- (sum(est_hawkes$alpha^2*Vderivs[[2]][[k]][,l])+2*sum(alpha*diag(est_hawkes$C%*%t(Gderivs[[5]][[k]][[l]])))-2*sum(alpha*vecvderivs[[2]][[k]][,l]))/(p*T)
+      Sigma[k,l] <- (sum(est_hawkes$alpha^2*Vderivs[[2]][[k]][,l])+2*sum(est_hawkes$alpha*diag(est_hawkes$C%*%t(Gderivs[[5]][[k]][[l]])))-2*sum(est_hawkes$alpha*vecvderivs[[2]][[k]][,l]))/(p*T)
       Sigma[l,k] <- Sigma[k,l]
     }
     ## Derivative with respect to gamma and beta
-    Sigma[q+1,k] <- 2*sum(alpha*diag(C%*%t(Gderivs[[4]][[k]])))/(p*T)
+    Sigma[q+1,k] <- 2*sum(est_hawkes$alpha*diag(est_hawkes$C%*%t(Gderivs[[4]][[k]])))/(p*T)
     Sigma[k,q+1] <- Sigma[q+1,k]
 
     ## Derivatives with respect to alpha and beta
-    Sigma[k,(q+2):(q+1+p)] <- as.numeric(2*Diagonal(p,Vderivs[[1]][,k])%*%est_hawkes$alpha+2*diag(C%*%t(Gderivs[[3]][[k]]))-2*vecvderivs[[1]][,k])/(p*T)
+    Sigma[k,(q+2):(q+1+p)] <- as.numeric(2*Matrix::Diagonal(p,Vderivs[[1]][,k])%*%est_hawkes$alpha+2*diag(est_hawkes$C%*%t(Gderivs[[3]][[k]]))-2*vecvderivs[[1]][,k])/(p*T)
     Sigma[(q+2):(q+1+p),k] <- Sigma[k,(q+2):(q+1+p)]
 
     ## Derivatives with respect to C and beta
-    Sigma[k,(q+1+p+1):(q+1+p+p^2)] <- as.numeric(2*Diagonal(p,est_hawkes$alpha)%*%Gderivs[[3]][[k]])/(p*T)
+    Sigma[k,(q+1+p+1):(q+1+p+p^2)] <- as.numeric(2*Matrix::Diagonal(p,est_hawkes$alpha)%*%Gderivs[[3]][[k]])/(p*T)
     Sigma[(q+1+p+1):(q+1+p+p^2),k] <- Sigma[k,(q+1+p+1):(q+1+p+p^2)]
   }
 
@@ -503,7 +544,7 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   Sigma[(q+2):(q+1+p),q+1] <- Sigma[q+1,(q+2):(q+1+p)]
 
   ## Derivative with respect to gamma and C
-  Sigma[q+1,(q+1+p+1):(q+1+p+p^2)] <- as.numeric(est_hawkes$C%*%Gammaderivs[[1]]+est_hawkes$C%*%t(Gammaderivs[[1]])+2*Diagonal(p,est_hawkes$alpha)%*%Gderivs[[1]]-2*Aderivs[[1]])/(p*T)
+  Sigma[q+1,(q+1+p+1):(q+1+p+p^2)] <- as.numeric(est_hawkes$C%*%Gammaderivs[[1]]+est_hawkes$C%*%t(Gammaderivs[[1]])+2*Matrix::Diagonal(p,est_hawkes$alpha)%*%Gderivs[[1]]-2*Aderivs[[1]])/(p*T)
   Sigma[(q+1+p+1):(q+1+p+p^2),q+1] <- Sigma[q+1,(q+1+p+1):(q+1+p+p^2)]
 
   ## Second derivative with respect to alpha
@@ -518,27 +559,33 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
 
   #### Compute Nodewise LASSO for the first columns of Sigma corresponding to beta and gamma
   ## Compute sqrt of Sigma
-  Sigma_eigen <- eigen(Sigma*(p*T))
-  Lambda <- Diagonal(1+q+p+p^2,Sigma_eigen$values)
+#  Sigma_eigen <- eigen(Sigma*(p*T))
+#  Lambda <- Diagonal(1+q+p+p^2,Sigma_eigen$values)
 
   ## Compute Nodewise LASSO
   Theta <- matrix(NA,ncol=1+q+p+p^2,nrow=q+1)
   for(j in 1:(q+1)) {
-    X <- t(t(Sigma_eigen$vectors)[,-j])%*%Lambda%*%t(Sigma_eigen$vectors)
+    # X <- t(t(Sigma_eigen$vectors)[,-j])%*%Lambda%*%t(Sigma_eigen$vectors)
+    X <- Sigma[-j,]
     Z <- as.numeric(tildeX%*%X[,j])
     M <- as.matrix(tildeX%*%X[,-j])
 
-    node_wise_lasso <- cv.glmnet(M,Z,penalty.factor=c(rep(0,q),rep(1,p+p^2)),intercept=FALSE,nfolds=5,standardize=FALSE)
+    node_wise_lasso <- glmnet::cv.glmnet(M,Z,penalty.factor=c(rep(0,q),rep(1,p+p^2)),intercept=FALSE,nfolds=5,standardize=FALSE)
     vec <- coef(node_wise_lasso)[-1]
 
-    tau <- as.numeric(matrix(Sigma_eigen$vectors[j,],nrow=1)%*%Lambda%*%(matrix(t(Sigma_eigen$vectors)[,j],ncol=1)-t(Sigma_eigen$vectors)[,-j]%*%vec))/(p*T)
+    tau <- as.numeric(Sigma[j,j]-matrix(Sigma[j,-j],nrow=1)%*%vec)
+    if(tau==0) {
+      ## If tau=0 replace by one and print a warning, this is not ideal
+      warning("The Sigma matrix in the debiasing has an almost zero column.")
+      tau <- 1
+    }
 
     Theta[j,-j] <- -vec/tau
     Theta[j,j] <- 1/tau
   }
 
   ## Compute De-Biased Estimator
-  theta_debiased <- c(est_hawkes$beta,est_hawkes$gamma)+Theta%*%matrix(grad,ncol=1)
+  theta_debiased <- c(est_hawkes$beta,est_hawkes$gamma)-Theta%*%matrix(grad,ncol=1)
 
   return(list(grad=grad,Sigma=Sigma,Theta=Theta,beta_debiased=theta_debiased[1:q],gamma_debiased=theta_debiased[q+1]))
 }
@@ -574,12 +621,12 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
 #'     stage estimator.
 #'
 #' @export
-NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL) {
+NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL) {
   ## Perform first stage estimation
   if(print.level>0) {
     cat("Perform the first stage estimation.\n")
   }
-  est_first_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,fit_theta=TRUE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network)
+  est_first_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,fit_theta=TRUE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
 
   ## Debiasing
   if(print.level>0) {
@@ -591,7 +638,7 @@ NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,print.level=0,ma
   if(print.level>0) {
     cat("Compute second stage estimator.\n")
   }
-  est_second_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=debiased_est$beta_debiased,gamma_init=debiased_est$gamma_debiased,alpha_init=est_first_stage$alpha,link=link,observation_matrix=observation_matrix_network)
+  est_second_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=debiased_est$beta_debiased,gamma_init=debiased_est$gamma_debiased,alpha_init=est_first_stage$alpha,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
 
   return(list(first_stage=est_first_stage,second_stage=est_second_stage,debiasing=debiased_est))
 }
@@ -653,7 +700,7 @@ create_observation_matrix <- function(n) {
   x[ind] <- -2/sqrt(6)
 
   ## Create Matrix
-  M <- sparseMatrix(i=i,j=j,x=x)
+  M <- Matrix::sparseMatrix(i=i,j=j,x=x)
 
   ## Last row requires modification for odd n
   if(n %%2 ==1) {
@@ -662,7 +709,7 @@ create_observation_matrix <- function(n) {
     M[n,n+od] <- -1/sqrt(2)
   }
 
-  return(t(M))
+  return(Matrix::t(M))
 }
 
 #' Plot Intensity Functions and Hawkes Processes
@@ -755,9 +802,12 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
   ## Create Network
   G <- igraph::graph_from_adjacency_matrix(edge.scaling*estHawkes$C,mode="directed",weighted="weight")
 
+  ## Add alpha as vertex attribute
+  igraph::V(G)$alpha <- estHawkes$alpha
+
   ## Change Vertex names if applicable
   if(!is.null(vertex.names)) {
-    V(G)$name <- vertex.names
+    igraph::V(G)$name <- vertex.names
   }
 
   ## Create Plot if asked
@@ -766,7 +816,7 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
     node_sizes <- vertex.scaling*(0.1+sqrt(estHawkes$alpha))
 
     ## Plot
-    igraph::plot(G,vertex.size=node_sizes,edge.width=E(G)$weight,...)
+    igraph::plot.igraph(G,vertex.size=node_sizes,edge.width=igraph::E(G)$weight,...)
   }
 
   return(G)
@@ -799,7 +849,7 @@ compute_lest_squares_theta <- function(par,covariates,C,alpha,hawkes,link) {
   nu0 <- link(mat)
 
   ## Compute Matrix V
-  V <- Diagonal(p,rowSums(t(t(nu0[,-L]^2)*(covariates$times[-1]-covariates$times[-L]))))
+  V <- Matrix::Diagonal(p,rowSums(t(t(nu0[,-L]^2)*(covariates$times[-1]-covariates$times[-L]))))
 
   ## Compute Vector v
   v <- .Call("compute_vector_v",hawkes$EL,nu0,covariates$times)
