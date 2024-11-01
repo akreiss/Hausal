@@ -817,6 +817,22 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
   return(G)
 }
 
+## Compute the tuning parameter as in the paper
+compute_omega <- function(hawkes,p,T,gamma_bar,mu=log(2),alpha3=1,N0=3,Cg=1) {
+  ## Compute phi
+  phi_mu <- exp(mu)-mu-1
+
+  ## Compute Integral
+  int <- .Call("compute_Vd_int",as.integer(p),hawkes$EL,as.double(gamma_bar))
+  print(int)
+
+  ## Compute Vd
+  Vd <- 4*mu*int/((mu-phi_mu)*p^2*T^2)+4*Cg^2*N0^2*(2+alpha3)*log(p)^3/((mu-phi_mu)*p^2*T^2)
+  print(Vd)
+
+  return(2*sqrt(Vd*(2+alpha3)*log(p))+2*Cg*N0*(2+alpha3)*log(p)^2/(3*p*T))
+}
+
 
 
 
