@@ -396,7 +396,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
 }
 
 LASSO_single_line <- function(Y,i,p,T,M_C,omega,m) {
-  sdY <- sd(Y[,i])*sqrt((p-1)/p)
+  sdY <- sd(Y[,i])*sqrt((m-1)/m)
 
   if(sdY==0) {
     ## Y[,i] is identical to zero, in this case the zero vector provides a
@@ -407,7 +407,7 @@ LASSO_single_line <- function(Y,i,p,T,M_C,omega,m) {
   } else {
     ## Perform LASSO estimation
     LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
-    out <- coef(LASSO,s=omega[i]*p*T/(m*sdY^2))[-1]
+    out <- coef(LASSO,s=omega[i]/(m*sdY^2))[-1]
   }
 
   return(out)
@@ -830,7 +830,10 @@ compute_omega <- function(hawkes,p,T,gamma_bar,mu=log(2),alpha3=1,N0=3,Cg=1) {
   Vd <- 4*mu*int/((mu-phi_mu)*p^2*T^2)+4*Cg^2*N0^2*(2+alpha3)*log(p)^3/((mu-phi_mu)*p^2*T^2)
   print(Vd)
 
-  return(2*sqrt(Vd*(2+alpha3)*log(p))+2*Cg*N0*(2+alpha3)*log(p)^2/(3*p*T))
+  ## Compute dn
+  dn <- 2*sqrt(Vd*(2+alpha3)*log(p))+2*Cg*N0*(2+alpha3)*log(p)^2/(3*p*T)
+
+  return(2*p*dn)
 }
 
 
