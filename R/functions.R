@@ -334,7 +334,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     ## Perform LASSO estimation for alpha
     sdY <- sd(Y)*sqrt((p-1)/p)
     LASSO <- glmnet::glmnet(M_alpha/sdY,Y/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
-    alpha <- coef(LASSO,s=omega_alpha*p*T/(m*sdY^2))[-1]
+    alpha <- coef(LASSO,s=omega_alpha*p*T/(m*sdY^2),exact=TRUE,x=M_alpha/sdY,y=Y/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE)[-1]
 
 
     #### Compute progress in alpha and C
@@ -407,7 +407,7 @@ LASSO_single_line <- function(Y,i,p,T,M_C,omega,m) {
   } else {
     ## Perform LASSO estimation
     LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
-    out <- coef(LASSO,s=omega[i]/(m*sdY^2))[-1]
+    out <- coef(LASSO,s=omega[i]/(m*sdY^2),exact=TRUE,x=M_C/sdY,y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE)[-1]
   }
 
   return(out)
@@ -558,14 +558,18 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   Sigma[(q+1+p+1):(q+1+p+p^2),(q+1+p+1):(q+1+p+p^2)] <- matrix(.Call("compute_d2C_deriv",Gamma),nrow=p^2)/(p*T)
 
   #### Compute Nodewise LASSO for the first columns of Sigma corresponding to beta and gamma
-  ## Compute Nodewise LASSO
+  ## Compute Nodewise LASSO using sigma from the paper
   Theta_tilde <- matrix(NA,ncol=1+q+p+p^2,nrow=q+1)
   for(j in 1:(q+1)) {
     Z <- as.numeric(tildeX%*%Sigma[,j])
     M <- as.matrix(tildeX%*%Sigma[,-j])
+    m <- length(Z)
+    node_lasso_sd <- sd(Z)*sqrt((m-1)/m)
+    sparsity <- sum(est_hawkes$alpha!=0)/p+sum(est_hawkes$C!=0)+sum(rowSums(est_hawkes$C!=0)^2)/p
+    pen_weight <- 1/(p^(3/2)*log(p*T)^4*log(p)*sparsity)
 
-    node_wise_lasso <- glmnet::cv.glmnet(M,Z,penalty.factor=c(rep(0,q),rep(1,p+p^2)),intercept=FALSE,nfolds=5,standardize=FALSE)
-    vec <- coef(node_wise_lasso)[-1]
+    node_wise_lasso <- glmnet::glmnet(M/node_lasso_sd,Z/node_lasso_sd,penalty.factor=c(rep(0,q),rep(1,p+p^2)),intercept=FALSE,standardize=FALSE)
+    vec <- coef(node_wise_lasso,s=pen_weight/(m*node_lasso_sd^2),exact=TRUE,x=M/node_lasso_sd,y=Z/node_lasso_sd,penalty.factor=c(rep(0,q),rep(1,p+p^2)),intercept=FALSE,standardize=FALSE)[-1]
 
     tau <- as.numeric((Sigma%*%Sigma)[j,j]-matrix((Sigma%*%Sigma)[j,-j],nrow=1)%*%vec)
     if(tau==0) {
