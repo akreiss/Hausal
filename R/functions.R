@@ -721,15 +721,19 @@ create_observation_matrix <- function(n) {
 #' @param hawkes A Hawkes process in the form of a list with at least the
 #'   elements `EL` and optionally `intensities` in the form as described in
 #'   [simulate_hawkes()].
+#' @param names An optional list of names that will be used as title for the
+#'   individual plots. The vertex with number i in `hawkes$EL` will be labelled
+#'   `names[i]`.
 #'
 #' @returns `plot_count_intensities` generates `p` plots (one for each vertex).
 #'   The plots show the realized Hawkes processes and, if provided, the
 #'   corresponding intensities. Before calling the function a plot window of the
 #'   necessary size has to be created.
 #' @export
-plot_count_intensities <- function(hawkes,T) {
+plot_count_intensities <- function(hawkes,T,names=NULL) {
   ## Check if intensities is provided
   int_provided <- "intensities" %in% names(hawkes)
+  names_provided <- !is.null(names)
 
   ## Read Information
   p <- max(hawkes$EL[,3])
@@ -742,9 +746,16 @@ plot_count_intensities <- function(hawkes,T) {
     ## Extract events of process i
     ind <- which(hawkes$EL[,3]==i)
 
+    ## Write plot title
+    if(names_provided) {
+      plot_title <- names[i]
+    } else {
+      plot_title <- sprintf("Vertex %d",i)
+    }
+
     ## Create Plot
     Y <- length(ind)+1
-    plot(0,0,type="n",xlim=c(0,T),ylim=c(0,Y),axes=FALSE,main=sprintf("Process %d",i),xlab="Time",ylab="Events")
+    plot(0,0,type="n",xlim=c(0,T),ylim=c(0,Y),axes=FALSE,main=plot_title,xlab="Time",ylab="Events")
     axis(1)
     axis(2)
 
