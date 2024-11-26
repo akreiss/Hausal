@@ -714,23 +714,28 @@ create_observation_matrix <- function(n) {
 #' Plot Intensity Functions and Hawkes Processes
 #'
 #' `plot_count_intensities` plots the provided Hawkes processes along with their
-#' intensity functions. A plot window the provides enough space to plot a graph
+#' intensity functions. A plot window that provides enough space to plot a graph
 #' for each vertex must be available before calling the function.
 #'
 #' @inheritParams simulate_hawkes
 #' @param hawkes A Hawkes process in the form of a list with at least the
-#'   elements `EL` and `intensities` in the form as described in
+#'   elements `EL` and optionally `intensities` in the form as described in
 #'   [simulate_hawkes()].
 #'
 #' @returns `plot_count_intensities` generates `p` plots (one for each vertex).
-#'   The plots show the realized Hawkes processes and the corresponding
-#'   intensities. Before calling the function a plot window of the necessary
-#'   size has to be created.
+#'   The plots show the realized Hawkes processes and, if provided, the
+#'   corresponding intensities. Before calling the function a plot window of the
+#'   necessary size has to be created.
 #' @export
 plot_count_intensities <- function(hawkes,T) {
+  ## Check if intensities is provided
+  int_provided <- "intensities" %in% names(hawkes)
+
   ## Read Information
-  p <- dim(hawkes$intensities)[1]
-  M <- max(hawkes$intensities)
+  p <- max(hawkes$EL[,3])
+  if(int_provided) {
+    M <- max(hawkes$intensities)
+  }
 
   ## Plot
   for(i in 1:p) {
@@ -763,9 +768,11 @@ plot_count_intensities <- function(hawkes,T) {
       lines(c(0,T),c(0,0))
     }
 
-    ## Plot Intensity
-    lines(hawkes$EL[,4],hawkes$intensities[i,]/M*Y,lty=2)
-    axis(4,at=0:Y,labels=(0:Y)/Y*M)
+    ## Plot Intensity if required
+    if(int_provided) {
+      lines(hawkes$EL[,4],hawkes$intensities[i,]/M*Y,lty=2)
+      axis(4,at=0:Y,labels=(0:Y)/Y*M)
+    }
   }
 }
 
