@@ -163,6 +163,9 @@ compute_baseline_intensities <- function(covariates,beta0,alpha,link=exp) {
 #' @param lb,ub Vectors of length q+1, q equals the dimension of covariates. The
 #'   first q entries of `lb` and `ub` provide lower and upper bounds on beta,
 #'   respectively. The last entry provides a lower (resp. upper) bound on gamma.
+#' @param C.ind.pen Individual weights for the LASSO estimation of C, which are
+#'   passed to glmnet as penalty.factor. These should sum to `p` in order to
+#'   leave the meaning of `omega` intact.
 #' @param fit_theta Logical value, if TRUE (the default) the parameters beta and
 #'   gamma are also fitted. If FALSE, beta and gamma are fixed equal to the
 #'   provided values in `beta_init`, `gamma_init`.
@@ -190,20 +193,26 @@ compute_baseline_intensities <- function(covariates,beta0,alpha,link=exp) {
 #'   pass it as a parameter here.
 #' @param cluster If `NULL` (the default) serial computations are executed. If a
 #'   cluster as returned by `makeCluster` is provided (after calling
-#'   `registerDoParallel(cluster)`), the estimation of C is executed in parallel.
-#'   This requires the packages `parallel`, `doParallel`, and `foreach`.
+#'   `registerDoParallel(cluster)`), the estimation of C is executed in
+#'   parallel. This requires the packages `parallel`, `doParallel`, and
+#'   `foreach`.
 #'
 #' @returns Returns a list with the elements `C`, `alpha`, `beta`, and `gamma`
 #'   which contain the estimates for the respective parameters.
 #'
 #' @export
-estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=TRUE,print.level=0,max_iteration=100,tol=0.00001,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
+estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=NULL,fit_theta=TRUE,print.level=0,max_iteration=100,tol=0.00001,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
   p <- dim(covariates$cov[[1]])[1]
   q <- dim(covariates$cov[[1]])[2]
   L <- length(covariates$times)
   T <- covariates$times[L]
 
   optimization_args <- list(algorithm="NLOPT_GN_DIRECT_L",xtol_rel=0.0001,print_level=0)
+
+  ## Set individual penalties for C estimation to 1 if not provided
+  if(is.null(C.ind.pen)) {
+    C.ind.pen <- rep(1,p)
+  }
 
   ## Compute Observation Matrix if not provided
   if(is.null(observation_matrix)) {
@@ -315,12 +324,12 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     if(is.null(cluster)) {
       ## No parallel computation
       for(i in 1:p) {
-        C[i,] <- LASSO_single_line(Y,i,p,T,M_C,omega,m)
+        C[i,] <- LASSO_single_line(Y,i,p,T,M_C,omega,m,C.ind.pen)
       }
     } else {
       ## Do parallel computations in the provided cluster
       par_out <- foreach::foreach(i=1:p,.combine=rbind,.packages=c('glmnet'),.inorder=FALSE) %dopar% {
-        c(i,LASSO_single_line(Y,i,p,T,M_C,omega,m))
+        c(i,LASSO_single_line(Y,i,p,T,M_C,omega,m,C.ind.pen))
       }
       ## Bring output in correct order
       C <- par_out[order(par_out[,1]),-1]
@@ -395,7 +404,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
   return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
 }
 
-LASSO_single_line <- function(Y,i,p,T,M_C,omega,m) {
+LASSO_single_line <- function(Y,i,p,T,M_C,omega,m,C.ind.pen) {
   sdY <- sd(Y[,i])*sqrt((m-1)/m)
 
   if(sdY==0) {
@@ -406,8 +415,8 @@ LASSO_single_line <- function(Y,i,p,T,M_C,omega,m) {
 
   } else {
     ## Perform LASSO estimation
-    LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
-    out <- coef(LASSO,s=omega[i]/(m*sdY^2),exact=TRUE,x=M_C/sdY,y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE)[-1]
+    LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p),penalty.factor=C.ind.pen)
+    out <- coef(LASSO,s=omega[i]/(m*sdY^2),exact=TRUE,x=M_C/sdY,y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE,penalty.factor=C.ind.pen)[-1]
   }
 
   return(out)
