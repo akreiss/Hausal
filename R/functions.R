@@ -577,8 +577,8 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
     sparsity <- sum(est_hawkes$alpha!=0)/p+sum(est_hawkes$C!=0)+sum(rowSums(est_hawkes$C!=0)^2)/p
     pen_weight <- 1/(T*p^(3/2)*log(p*T)^4*log(p)*sparsity)
 
-    node_wise_lasso <- glmnet::glmnet(M/node_lasso_sd,Z/node_lasso_sd,penalty.factor=c(rep(0,q),rep(1,p+p^2)),intercept=FALSE,standardize=FALSE,thresh=1e-14,maxit=100000000)
-    vec <- coef(node_wise_lasso,s=pen_weight/(m*node_lasso_sd^2),exact=TRUE,x=M/node_lasso_sd,y=Z/node_lasso_sd,penalty.factor=c(rep(0,q),rep(1,p+p^2)),intercept=FALSE,standardize=FALSE)[-1]
+    node_wise_lasso <- glmnet::glmnet(M/node_lasso_sd,Z/node_lasso_sd,intercept=FALSE,standardize=FALSE,thresh=1e-14,maxit=100000000)
+    vec <- coef(node_wise_lasso,s=pen_weight/(m*node_lasso_sd^2),exact=TRUE,x=M/node_lasso_sd,y=Z/node_lasso_sd,intercept=FALSE,standardize=FALSE)[-1]
 
     tau <- as.numeric((Sigma%*%Sigma)[j,j]-matrix((Sigma%*%Sigma)[j,-j],nrow=1)%*%vec)
     if(tau==0) {
