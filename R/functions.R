@@ -836,6 +836,251 @@ compute_omega <- function(hawkes,p,T,gamma_bar,mu=log(2),alpha3=1,N0=3,Cg=1) {
 
 
 
+#' @title Calculate Sparsity Score
+#' @description Computes the sparsity score of the estimated adjacency matrix.
+#' Meaning: How many zero-edges does the estimated adjacency matrix have. Resulting score
+#' will be between 0 and 1.
+#' @param C_estimated Adjacency matrix
+#' @return Sparsity score
+#' @export
+calculate_sparsity_score <- function(C_estimated) {
+  sparsity_score <- sum(C_estimated == 0) / length(C_estimated)
+  cat(sprintf("Sparsity score: %s\n", sparsity_score))
+  return(sparsity_score)
+}
+
+#' @title Find Minimum Omega
+#' @description Finds the minimum omega where the network graph becomes non-null.
+#' The algorithm starts with `omega_tol` and computes the [estimate_hawkes()],
+#' after that it will do the same with `omega_start`, then both will be compared.
+#' Afterwards the middle of `omega_tol` and `omega_start` will be computed and used
+#' to compare until the lowest omega is found where C_estimated is not zero.
+#' @param covariates Covariates for Hawkes process
+#' @param hawkes Hawkes process data
+#' @param beta0 Initial beta
+#' @param gamma Gamma parameter
+#' @param print_level Print level for debugging
+#' @param hawkes_tol Tolerance for Hawkes estimation
+#' @param max_iteration Maximum iterations
+#' @param omega_start Starting omega value
+#' @param omega_tol Minimum omega threshold
+#' @return Minimum omega where the network graph is non-null
+#' @export
+find_min_omega <- function(covariates, hawkes, beta0, gamma, print_level, hawkes_tol, lb, ub ,
+                           max_iteration, omega_start, omega_tol) {
+  omega_low <- omega_tol
+  omega_high <- omega_start
+  iteration <- 1
+  tolerance <- 1e-5
+
+  omega <- rep(omega_low, p)
+  est_hawkes <<- estimate_hawkes(
+    covariates, hawkes, omega, 0,
+    lb =lb, ub = ub, fit_theta = FALSE, beta_init = beta0, gamma_init = gamma,
+    print.level = print_level, tol = hawkes_tol, max_iteration = max_iteration
+  )
+  sparsity_low <- calculate_sparsity_score(est_hawkes$C)
+
+  if (sparsity_low == 1) {
+    cat("Graph is null at ω_low. No non-null graph found.\n")
+    return(NULL)
+  }
+
+  omega <- rep(omega_high, p)
+  est_hawkes <<- estimate_hawkes(
+    covariates, hawkes, omega, 0,
+    lb =lb, ub = ub, fit_theta = FALSE, beta_init = beta0, gamma_init = gamma,
+    print.level = print_level, tol = hawkes_tol, max_iteration = max_iteration
+  )
+  sparsity_high <- calculate_sparsity_score(est_hawkes$C)
+
+  if (sparsity_high < 1) {
+    cat("Graph is non-null at ω_high. Cannot find ω where graph transitions from non-null to null.\n")
+    return(NULL)
+  }
+
+  while ((omega_high - omega_low) > tolerance && iteration <= max_iteration) {
+    omega_mid <- (omega_low + omega_high) / 2
+    omega <- rep(omega_mid, p)
+
+    est_hawkes <- estimate_hawkes(
+      covariates, hawkes, omega, 0,
+      lb =lb, ub = ub, fit_theta = FALSE, beta_init = beta0, gamma_init = gamma,
+      print.level = print_level, tol = hawkes_tol, max_iteration = max_iteration
+    )
+
+    current_sparsity <- calculate_sparsity_score(est_hawkes$C)
+
+    if (current_sparsity < 1) {
+      omega_low <- omega_mid
+    } else {
+      omega_high <- omega_mid
+    }
+
+    iteration <- iteration + 1
+  }
+
+  min_omega <- omega_low
+  cat(sprintf("Minimum ω where C_estimated is not zero: %0.7f\n", min_omega))
+  return(min_omega)
+}
+
+#' @title Generate Omega Sequence and Plot Networks
+#' @description Generates a sequence of omega values and creates plots of the network for each omega.
+#' The omega will be decreased by `n_percent` in every iteration step until either
+#' `omega_start` is smaller than `omega_tol` or until the max number of iteration
+#' is used. In every iteration step [estimate_hawkes()] will be computed and used
+#' for computing the Page Rank of the graph from the adjacency matrix and afterwards
+#' saved as a plot in the `output_dir`. Also the respective CSV will be saved.
+#' @param covariates Covariates for Hawkes process
+#' @param hawkes Hawkes process data
+#' @param beta0 Initial beta
+#' @param gamma Gamma parameter
+#' @param print_level Print level for debugging
+#' @param hawkes_tol Tolerance for Hawkes estimation
+#' @param max_iteration Maximum iterations
+#' @param omega_start Starting omega value
+#' @param omega_tol Minimum omega threshold
+#' @param n_percent Percent decrease in omega for each iteration
+#' @param output_dir Directory to save plots
+#' @return Dataframe with omega values and filenames of plots
+#' @export
+generate_omega_sequence <- function(covariates, hawkes, beta0, gamma, print_level, hawkes_tol, lb, ub,
+                                    max_iteration, omega_start, omega_tol, n_percent, output_dir) {
+  omega0 <- omega_start
+  omega <- rep(omega0, p)
+  counter <- 1
+  omega_plot_list <- data.frame(omega = numeric(), filename = character(), stringsAsFactors = FALSE)
+
+  while (omega0 > omega_tol && counter <= max_iteration) {
+    est_hawkes <- estimate_hawkes(
+      covariates, hawkes, omega, 0,
+      lb =lb, ub = ub, fit_theta = FALSE, beta_init = beta0, gamma_init = gamma,
+      print.level = print_level, tol = hawkes_tol, max_iteration = max_iteration
+    )
+
+    current_sparsity <- calculate_sparsity_score(est_hawkes$C)
+    G <- graph_from_adjacency_matrix(est_hawkes$C, mode = "directed", weighted = TRUE)
+    fixed_layout <- layout_in_circle(G)
+
+    pr <- page_rank(G)$vector
+    normalized_pr <- (pr - min(pr)) / (max(pr) - min(pr))
+    pr_colors <- rgb(colorRamp(c("green", "red"))(normalized_pr), maxColorValue = 255)
+    vertex_sizes <- 15 * normalized_pr + 5
+
+    png_filename <- sprintf("%s/plot_%03d_%0.7f.png", output_dir, counter, omega0)
+    png(filename = png_filename, width = 1200, height = 1200, res = 150)
+    plot(G, layout = fixed_layout,
+         vertex.size = vertex_sizes,
+         vertex.color = pr_colors,
+         vertex.label.cex = 0.8,
+         main = paste("Graph with ω =", round(omega0, 7)))
+    legend("topright", legend = c("High PageRank", "Low PageRank"),
+           fill = c("red", "green"), bty = "n")
+    dev.off()
+
+    omega_plot_list <- rbind(
+      omega_plot_list,
+      data.frame(omega = round(omega0, 7), filename = basename(png_filename), stringsAsFactors = FALSE)
+    )
+
+    omega0 <- omega0 * (1 - n_percent / 100)
+    omega <- rep(omega0, p)
+    counter <- counter + 1
+  }
+
+  write.csv(omega_plot_list, file = sprintf("%s/omega_plot_mapping.csv", output_dir), row.names = FALSE)
+  return(omega_plot_list)
+}
+
+
+#' @title Generate Omega Sequence with Clustering and Plot Networks
+#' @description Generates a sequence of omega values, performs clustering, and plots network graphs with cluster information.
+#' The omega will be decreased by `n_percent` in every iteration step until either
+#' `omega_start` is smaller than `omega_tol` or until the max number of iteration
+#' is used. In every iteration step [estimate_hawkes()] will be computed and used
+#' for computing the cluster algorithm of the graph from the adjacency matrix and afterwards
+#' saved as a plot in the `output_dir`. Also the respective CSV will be saved as well.
+#' @param covariates Covariates for Hawkes process
+#' @param hawkes Hawkes process data
+#' @param beta0 Initial beta
+#' @param gamma Gamma parameter
+#' @param print_level Print level for debugging
+#' @param hawkes_tol Tolerance for Hawkes estimation
+#' @param max_iteration Maximum iterations
+#' @param omega_start Starting omega value
+#' @param omega_tol Minimum omega threshold
+#' @param n_percent Percent decrease in omega for each iteration
+#' @return Dataframe with omega values and filenames of plots, and prints the Adjusted Rand Index and confusion matrix
+#' @export
+generate_omega_cluster <- function(covariates, hawkes, beta0, gamma, print_level, hawkes_tol, lb, ub,
+                                   max_iteration, omega_start, omega_tol, n_percent, output_dir) {
+  omega0 <- omega_start
+  omega <- rep(omega0, p)
+  counter <- 1
+  omega_plot_list <- data.frame(omega = numeric(), filename = character(), stringsAsFactors = FALSE)
+
+  while (omega0 > omega_tol && counter <= max_iteration) {
+    cat(sprintf("Iteration %d, ω = %0.7f\n", counter, omega0))
+    est_hawkes <- estimate_hawkes(
+      covariates, hawkes, omega, omega_alpha,
+      lb = lb, ub = ub, fit_theta = FALSE, beta_init = beta0, gamma_init = gamma,
+      print.level = print_level, tol = hawkes_tol, max_iteration = max_iteration
+    )
+
+    current_sparsity <- calculate_sparsity_score(est_hawkes$C)
+
+    png_filename <- sprintf("%s/plot_%03d_%0.7f.png",output_dir, counter, omega0)
+    png(filename = png_filename, width = 1200, height = 1200, res = 150)
+    G <- graph_from_adjacency_matrix(est_hawkes$C, mode = "directed", weighted = TRUE)
+    fixed_layout <- layout_in_circle(G)
+
+    # group population 1 and 2
+    V(G)$group <- ifelse(neuron_indices <= max(population1_indices), "Population 1", "Population 2")
+
+    print(V(G)$group)
+    # Perform community detection
+    #clusters <- cluster_louvain(G)
+    clusters <- cluster_infomap(G, e.weights = E(G)$weight)
+
+    # Assign cluster membership to vertices
+    V(G)$cluster <- clusters$membership
+
+    confusion_matrix <- table(V(G)$group, V(G)$cluster)
+    print(confusion_matrix)
+
+    # Calculate Adjusted Rand Index
+    ari <- adjustedRandIndex(as.numeric(factor(V(G)$group)), V(G)$cluster)
+    cat("Adjusted Rand Index:", ari, "\n")
+
+    # Visualize the clusters
+    # rainbow(n) generates n distinct colors
+    # max(V(G)$cluster) determines the number of clusters
+    # [V(G)$cluster] indexes the colors so that each vertex gets the color corresponding to its cluster
+    cluster_colors <- rainbow(max(V(G)$cluster))[V(G)$cluster]
+    plot(G, vertex.color = cluster_colors,
+         main = paste("Network Graph Colored by Detected Clusters with ω = ", round(omega0, 7)),
+         layout = fixed_layout)
+    dev.off()
+
+    omega_plot_list <- rbind(
+      omega_plot_list,
+      data.frame(
+        omega = round(omega0, 7),
+        filename = basename(png_filename),
+        stringsAsFactors = FALSE
+      )
+    )
+
+    # Update omega by decreasing it by n_percent
+    omega0 <- omega0 * (1 - n_percent / 100)
+    omega <- rep(omega0, p)
+    counter <- counter + 1
+  }
+
+  write.csv(omega_plot_list, file = sprintf("%s/omega_plot_mapping.csv", output_dir), row.names = FALSE)
+  return(omega_plot_list)
+}
 
 
 
