@@ -4,23 +4,27 @@
 \alias{plot_count_intensities}
 \title{Plot Intensity Functions and Hawkes Processes}
 \usage{
-plot_count_intensities(hawkes, T)
+plot_count_intensities(hawkes, T, names = NULL)
 }
 \arguments{
 \item{hawkes}{A Hawkes process in the form of a list with at least the
-elements \code{EL} and \code{intensities} in the form as described in
+elements \code{EL} and optionally \code{intensities} in the form as described in
 \code{\link[=simulate_hawkes]{simulate_hawkes()}}.}
 
 \item{T}{Positive number giving the end of observation period.}
+
+\item{names}{An optional list of names that will be used as title for the
+individual plots. The vertex with number i in \code{hawkes$EL} will be labelled
+\code{names[i]}.}
 }
 \value{
 \code{plot_count_intensities} generates \code{p} plots (one for each vertex).
-The plots show the realized Hawkes processes and the corresponding
-intensities. Before calling the function a plot window of the necessary
-size has to be created.
+The plots show the realized Hawkes processes and, if provided, the
+corresponding intensities. Before calling the function a plot window of the
+necessary size has to be created.
 }
 \description{
 \code{plot_count_intensities} plots the provided Hawkes processes along with their
-intensity functions. A plot window the provides enough space to plot a graph
+intensity functions. A plot window that provides enough space to plot a graph
 for each vertex must be available before calling the function.
 }

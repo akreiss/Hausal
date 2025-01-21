@@ -11,6 +11,7 @@ NetHawkes(
   omega_alpha,
   lb,
   ub,
+  C.ind.pen = NULL,
   print.level = 0,
   max_iteration = 100,
   tol = 1e-05,
@@ -35,9 +36,18 @@ adjacency matrix.}
 \item{omega_alpha}{A non-negative number, containing the tuning parameter for
 the LASSO penalty with respect to the individuals intensities a.}
 
-\item{lb, ub}{Vectors of length q+1, q equals the dimension of covariates. The
+\item{lb}{Vectors of length q+1, q equals the dimension of covariates. The
 first q entries of \code{lb} and \code{ub} provide lower and upper bounds on beta,
 respectively. The last entry provides a lower (resp. upper) bound on gamma.}
+
+\item{ub}{Vectors of length q+1, q equals the dimension of covariates. The
+first q entries of \code{lb} and \code{ub} provide lower and upper bounds on beta,
+respectively. The last entry provides a lower (resp. upper) bound on gamma.}
+
+\item{C.ind.pen}{Individual weights for the LASSO estimation of C, which are
+passed to glmnet as penalty.factor. These should sum to \code{p} in order to
+leave the meaning of \code{omega} intact. If \code{NULL} (the default), all vertices
+receive the same weight.}
 
 \item{print.level}{Passed to \code{\link[=estimate_hawkes]{estimate_hawkes()}}. If positive, in addition,
 information about in which stage the estimation is, is printed. The default
@@ -66,8 +76,9 @@ dimension of the covariates.}
 
 \item{cluster}{If \code{NULL} (the default) serial computations are executed. If a
 cluster as returned by \code{makeCluster} is provided (after calling
-\code{registerDoParallel(cluster)}), the estimation of C is executed in parallel.
-This requires the packages \code{parallel}, \code{doParallel}, and \code{foreach}.}
+\code{registerDoParallel(cluster)}), the estimation of C is executed in
+parallel. This requires the packages \code{parallel}, \code{doParallel}, and
+\code{foreach}.}
 }
 \value{
 \code{NetHawkes} returns a list containing the elements:

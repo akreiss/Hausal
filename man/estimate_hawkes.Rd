@@ -11,6 +11,7 @@ estimate_hawkes(
   omega_alpha,
   lb,
   ub,
+  C.ind.pen = NULL,
   fit_theta = TRUE,
   print.level = 0,
   max_iteration = 100,
@@ -41,6 +42,11 @@ the LASSO penalty with respect to the individuals intensities a.}
 \item{lb, ub}{Vectors of length q+1, q equals the dimension of covariates. The
 first q entries of \code{lb} and \code{ub} provide lower and upper bounds on beta,
 respectively. The last entry provides a lower (resp. upper) bound on gamma.}
+
+\item{C.ind.pen}{Individual weights for the LASSO estimation of C, which are
+passed to glmnet as penalty.factor. These should sum to \code{p} in order to
+leave the meaning of \code{omega} intact. If \code{NULL} (the default), all vertices
+receive the same weight.}
 
 \item{fit_theta}{Logical value, if TRUE (the default) the parameters beta and
 gamma are also fitted. If FALSE, beta and gamma are fixed equal to the
@@ -81,8 +87,9 @@ pass it as a parameter here.}
 
 \item{cluster}{If \code{NULL} (the default) serial computations are executed. If a
 cluster as returned by \code{makeCluster} is provided (after calling
-\code{registerDoParallel(cluster)}), the estimation of C is executed in parallel.
-This requires the packages \code{parallel}, \code{doParallel}, and \code{foreach}.}
+\code{registerDoParallel(cluster)}), the estimation of C is executed in
+parallel. This requires the packages \code{parallel}, \code{doParallel}, and
+\code{foreach}.}
 }
 \value{
 Returns a list with the elements \code{C}, \code{alpha}, \code{beta}, and \code{gamma}

@@ -165,7 +165,8 @@ compute_baseline_intensities <- function(covariates,beta0,alpha,link=exp) {
 #'   respectively. The last entry provides a lower (resp. upper) bound on gamma.
 #' @param C.ind.pen Individual weights for the LASSO estimation of C, which are
 #'   passed to glmnet as penalty.factor. These should sum to `p` in order to
-#'   leave the meaning of `omega` intact.
+#'   leave the meaning of `omega` intact. If `NULL` (the default), all vertices
+#'   receive the same weight.
 #' @param fit_theta Logical value, if TRUE (the default) the parameters beta and
 #'   gamma are also fitted. If FALSE, beta and gamma are fixed equal to the
 #'   provided values in `beta_init`, `gamma_init`.
@@ -416,7 +417,7 @@ LASSO_single_line <- function(Y,i,p,T,M_C,omega,m,C.ind.pen) {
   } else {
     ## Perform LASSO estimation
     LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p),penalty.factor=C.ind.pen)
-    out <- coef(LASSO,s=omega[i]/(m*sdY^2),exact=TRUE,x=M_C/sdY,y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE,penalty.factor=C.ind.pen)[-1]
+    out <- coef(LASSO,s=T*omega[i]/(m*sdY^2),exact=TRUE,x=M_C/sdY,y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE,penalty.factor=C.ind.pen)[-1]
   }
 
   return(out)
@@ -629,12 +630,12 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
 #'     stage estimator.
 #'
 #' @export
-NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL) {
+NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL) {
   ## Perform first stage estimation
   if(print.level>0) {
     cat("Perform the first stage estimation.\n")
   }
-  est_first_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,fit_theta=TRUE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
+  est_first_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,C.ind.pen=C.ind.pen,fit_theta=TRUE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
 
   ## Debiasing
   if(print.level>0) {
@@ -646,7 +647,7 @@ NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,print.level=0,ma
   if(print.level>0) {
     cat("Compute second stage estimator.\n")
   }
-  est_second_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=debiased_est$beta_debiased,gamma_init=debiased_est$gamma_debiased,alpha_init=est_first_stage$alpha,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
+  est_second_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,C.ind.pen=C.ind.pen,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=debiased_est$beta_debiased,gamma_init=debiased_est$gamma_debiased,alpha_init=est_first_stage$alpha,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
 
   return(list(first_stage=est_first_stage,second_stage=est_second_stage,debiasing=debiased_est))
 }
@@ -848,8 +849,22 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
   return(G)
 }
 
-## Compute the tuning parameter as in the paper
-compute_omega <- function(hawkes,p,T,gamma_bar,mu=log(2),alpha3=1,N0=3,Cg=1) {
+#' Compute the tuning parameter omega according to theory
+#'
+#' `compute_omega` computes a vector of tuning parameters according to the
+#' theoretic results provided in our paper.
+#'
+#' @param p The number of vertices in the network
+#' @param T The end of the observation period
+#' @param gamma_bar The value of gamma to be used in the formula.
+#' @param mu,alpha3,alpha3_tilde,N0,Cg Additional parameters in the formula.
+#'
+#' @returns `compute_omega` returns a vector of length `p` that contains the
+#'   penalty parameter for each vertex. It can be, e.g., provided to
+#'   estimate_hawkes() as `omega`.
+#'
+#' @export
+compute_omega <- function(hawkes,p,T,gamma_bar,mu=log(2),alpha3=1,alpha3_tilde=0.5,N0=2,Cg=1) {
   ## Compute phi
   phi_mu <- exp(mu)-mu-1
 
@@ -857,12 +872,12 @@ compute_omega <- function(hawkes,p,T,gamma_bar,mu=log(2),alpha3=1,N0=3,Cg=1) {
   int <- .Call("compute_Vd_int",as.integer(p),hawkes$EL,as.double(gamma_bar))
 
   ## Compute Vd
-  Vd <- 4*mu*int/((mu-phi_mu)*p^2*T^2)+4*Cg^2*N0^2*(2+alpha3)*log(p)^3/((mu-phi_mu)*p^2*T^2)
+  Vd <- 16*mu*int/((mu-phi_mu)*T^2)+16*Cg^2*N0^2*log(p)^2*((2+alpha3)*log(p)+(1+alpha3_tilde)*log(T))/((mu-phi_mu)*T^2)
 
   ## Compute dn
-  dn <- 2*sqrt(Vd*(2+alpha3)*log(p))+2*Cg*N0*(2+alpha3)*log(p)^2/(3*p*T)
+  dn <- 2*sqrt(Vd*((2+alpha3)*log(p)+(1+alpha3_tilde)*log(T)))+4*Cg*N0*log(p)*((2+alpha3)*log(p)+(1+alpha3_tilde)*log(T))/(3*T)
 
-  return(2*p*dn)
+  return(2*dn)
 }
 
 

@@ -1007,7 +1007,7 @@ SEXP compute_Vd_int(SEXP p_R,SEXP event_list,SEXP gamma_bar_R)
   // Variables
   int i,j,k;
   int p,L;
-  double gamma_bar,t,h;
+  double gamma_bar,t,old_t;
   double* v;
   double* mat;
   SEXP out;
@@ -1028,27 +1028,28 @@ SEXP compute_Vd_int(SEXP p_R,SEXP event_list,SEXP gamma_bar_R)
   }
 
   // Compute the squared cross-integrals
+  old_t=0;
   for(k=0;k<L;k++)
   {
     i=(int)REAL(event_list)[k+2*L]-1;
     t=REAL(event_list)[k+3*L];
     for(j=0;j<p;j++)
     {
-      h=exp(-gamma_bar*t)*v[j];
-      mat[i+j*p]=mat[i+j*p]+h*h;
+      v[j]=exp(-gamma_bar*(t-old_t))*v[j];
+      mat[i+j*p]=mat[i+j*p]+v[j]*v[j];
     }
-    v[i]=v[i]+exp(gamma_bar*t);
+    v[i]=v[i]+1;
   }
 
   // Find maximum
-  out=PROTECT(allocVector(REALSXP,1));
-  REAL(out)[0]=mat[0];
+  out=PROTECT(allocVector(REALSXP,p));
   for(i=0;i<p;i++)
   {
-    for(j=0;j<p;j++)
+    REAL(out)[i]=mat[i];
+    for(j=1;j<p;j++)
     {
-      if(REAL(out)[0]<mat[i+j*p])
-        REAL(out)[0]=mat[i+j*p];
+      if(REAL(out)[i]<mat[i+j*p])
+        REAL(out)[i]=mat[i+j*p];
     }
   }
 
