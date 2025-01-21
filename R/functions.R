@@ -163,6 +163,9 @@ compute_baseline_intensities <- function(covariates,beta0,alpha,link=exp) {
 #' @param lb,ub Vectors of length q+1, q equals the dimension of covariates. The
 #'   first q entries of `lb` and `ub` provide lower and upper bounds on beta,
 #'   respectively. The last entry provides a lower (resp. upper) bound on gamma.
+#' @param C.ind.pen Individual weights for the LASSO estimation of C, which are
+#'   passed to glmnet as penalty.factor. These should sum to `p` in order to
+#'   leave the meaning of `omega` intact.
 #' @param fit_theta Logical value, if TRUE (the default) the parameters beta and
 #'   gamma are also fitted. If FALSE, beta and gamma are fixed equal to the
 #'   provided values in `beta_init`, `gamma_init`.
@@ -190,20 +193,26 @@ compute_baseline_intensities <- function(covariates,beta0,alpha,link=exp) {
 #'   pass it as a parameter here.
 #' @param cluster If `NULL` (the default) serial computations are executed. If a
 #'   cluster as returned by `makeCluster` is provided (after calling
-#'   `registerDoParallel(cluster)`), the estimation of C is executed in parallel.
-#'   This requires the packages `parallel`, `doParallel`, and `foreach`.
+#'   `registerDoParallel(cluster)`), the estimation of C is executed in
+#'   parallel. This requires the packages `parallel`, `doParallel`, and
+#'   `foreach`.
 #'
 #' @returns Returns a list with the elements `C`, `alpha`, `beta`, and `gamma`
 #'   which contain the estimates for the respective parameters.
 #'
 #' @export
-estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=TRUE,print.level=0,max_iteration=100,tol=0.00001,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
+estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=NULL,fit_theta=TRUE,print.level=0,max_iteration=100,tol=0.00001,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
   p <- dim(covariates$cov[[1]])[1]
   q <- dim(covariates$cov[[1]])[2]
   L <- length(covariates$times)
   T <- covariates$times[L]
 
   optimization_args <- list(algorithm="NLOPT_GN_DIRECT_L",xtol_rel=0.0001,print_level=0)
+
+  ## Set individual penalties for C estimation to 1 if not provided
+  if(is.null(C.ind.pen)) {
+    C.ind.pen <- rep(1,p)
+  }
 
   ## Compute Observation Matrix if not provided
   if(is.null(observation_matrix)) {
@@ -315,12 +324,12 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     if(is.null(cluster)) {
       ## No parallel computation
       for(i in 1:p) {
-        C[i,] <- LASSO_single_line(Y,i,p,T,M_C,omega,m)
+        C[i,] <- LASSO_single_line(Y,i,p,T,M_C,omega,m,C.ind.pen)
       }
     } else {
       ## Do parallel computations in the provided cluster
       par_out <- foreach::foreach(i=1:p,.combine=rbind,.packages=c('glmnet'),.inorder=FALSE) %dopar% {
-        c(i,LASSO_single_line(Y,i,p,T,M_C,omega,m))
+        c(i,LASSO_single_line(Y,i,p,T,M_C,omega,m,C.ind.pen))
       }
       ## Bring output in correct order
       C <- par_out[order(par_out[,1]),-1]
@@ -334,7 +343,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
     ## Perform LASSO estimation for alpha
     sdY <- sd(Y)*sqrt((p-1)/p)
     LASSO <- glmnet::glmnet(M_alpha/sdY,Y/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
-    alpha <- coef(LASSO,s=omega_alpha*p*T/(m*sdY^2))[-1]
+    alpha <- coef(LASSO,s=omega_alpha*p*T/(m*sdY^2),exact=TRUE,x=M_alpha/sdY,y=Y/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE)[-1]
 
 
     #### Compute progress in alpha and C
@@ -395,8 +404,8 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,fit_theta=
   return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
 }
 
-LASSO_single_line <- function(Y,i,p,T,M_C,omega,m) {
-  sdY <- sd(Y[,i])*sqrt((p-1)/p)
+LASSO_single_line <- function(Y,i,p,T,M_C,omega,m,C.ind.pen) {
+  sdY <- sd(Y[,i])*sqrt((m-1)/m)
 
   if(sdY==0) {
     ## Y[,i] is identical to zero, in this case the zero vector provides a
@@ -406,8 +415,8 @@ LASSO_single_line <- function(Y,i,p,T,M_C,omega,m) {
 
   } else {
     ## Perform LASSO estimation
-    LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
-    out <- coef(LASSO,s=omega[i]*p*T/(m*sdY^2))[-1]
+    LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p),penalty.factor=C.ind.pen)
+    out <- coef(LASSO,s=omega[i]/(m*sdY^2),exact=TRUE,x=M_C/sdY,y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE,penalty.factor=C.ind.pen)[-1]
   }
 
   return(out)
@@ -558,14 +567,18 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   Sigma[(q+1+p+1):(q+1+p+p^2),(q+1+p+1):(q+1+p+p^2)] <- matrix(.Call("compute_d2C_deriv",Gamma),nrow=p^2)/(p*T)
 
   #### Compute Nodewise LASSO for the first columns of Sigma corresponding to beta and gamma
-  ## Compute Nodewise LASSO
+  ## Compute Nodewise LASSO using sigma from the paper
   Theta_tilde <- matrix(NA,ncol=1+q+p+p^2,nrow=q+1)
   for(j in 1:(q+1)) {
     Z <- as.numeric(tildeX%*%Sigma[,j])
     M <- as.matrix(tildeX%*%Sigma[,-j])
+    m <- length(Z)
+    node_lasso_sd <- sd(Z)*sqrt((m-1)/m)
+    sparsity <- sum(est_hawkes$alpha!=0)/p+sum(est_hawkes$C!=0)+sum(rowSums(est_hawkes$C!=0)^2)/p
+    pen_weight <- 1/(T*p^(3/2)*log(p*T)^4*log(p)*sparsity)
 
-    node_wise_lasso <- glmnet::cv.glmnet(M,Z,penalty.factor=c(rep(0,q),rep(1,p+p^2)),intercept=FALSE,nfolds=5,standardize=FALSE)
-    vec <- coef(node_wise_lasso)[-1]
+    node_wise_lasso <- glmnet::glmnet(M/node_lasso_sd,Z/node_lasso_sd,intercept=FALSE,standardize=FALSE,thresh=1e-14,maxit=100000000)
+    vec <- coef(node_wise_lasso,s=pen_weight/(m*node_lasso_sd^2),exact=TRUE,x=M/node_lasso_sd,y=Z/node_lasso_sd,intercept=FALSE,standardize=FALSE)[-1]
 
     tau <- as.numeric((Sigma%*%Sigma)[j,j]-matrix((Sigma%*%Sigma)[j,-j],nrow=1)%*%vec)
     if(tau==0) {
@@ -710,32 +723,48 @@ create_observation_matrix <- function(n) {
 #' Plot Intensity Functions and Hawkes Processes
 #'
 #' `plot_count_intensities` plots the provided Hawkes processes along with their
-#' intensity functions. A plot window the provides enough space to plot a graph
+#' intensity functions. A plot window that provides enough space to plot a graph
 #' for each vertex must be available before calling the function.
 #'
 #' @inheritParams simulate_hawkes
 #' @param hawkes A Hawkes process in the form of a list with at least the
-#'   elements `EL` and `intensities` in the form as described in
+#'   elements `EL` and optionally `intensities` in the form as described in
 #'   [simulate_hawkes()].
+#' @param names An optional list of names that will be used as title for the
+#'   individual plots. The vertex with number i in `hawkes$EL` will be labelled
+#'   `names[i]`.
 #'
 #' @returns `plot_count_intensities` generates `p` plots (one for each vertex).
-#'   The plots show the realized Hawkes processes and the corresponding
-#'   intensities. Before calling the function a plot window of the necessary
-#'   size has to be created.
+#'   The plots show the realized Hawkes processes and, if provided, the
+#'   corresponding intensities. Before calling the function a plot window of the
+#'   necessary size has to be created.
 #' @export
-plot_count_intensities <- function(hawkes,T) {
+plot_count_intensities <- function(hawkes,T,names=NULL) {
+  ## Check if intensities is provided
+  int_provided <- "intensities" %in% names(hawkes)
+  names_provided <- !is.null(names)
+
   ## Read Information
-  p <- dim(hawkes$intensities)[1]
-  M <- max(hawkes$intensities)
+  p <- max(hawkes$EL[,3])
+  if(int_provided) {
+    M <- max(hawkes$intensities)
+  }
 
   ## Plot
   for(i in 1:p) {
     ## Extract events of process i
     ind <- which(hawkes$EL[,3]==i)
 
+    ## Write plot title
+    if(names_provided) {
+      plot_title <- names[i]
+    } else {
+      plot_title <- sprintf("Vertex %d",i)
+    }
+
     ## Create Plot
     Y <- length(ind)+1
-    plot(0,0,type="n",xlim=c(0,T),ylim=c(0,Y),axes=FALSE,main=sprintf("Process %d",i),xlab="Time",ylab="Events")
+    plot(0,0,type="n",xlim=c(0,T),ylim=c(0,Y),axes=FALSE,main=plot_title,xlab="Time",ylab="Events")
     axis(1)
     axis(2)
 
@@ -759,9 +788,11 @@ plot_count_intensities <- function(hawkes,T) {
       lines(c(0,T),c(0,0))
     }
 
-    ## Plot Intensity
-    lines(hawkes$EL[,4],hawkes$intensities[i,]/M*Y,lty=2)
-    axis(4,at=0:Y,labels=(0:Y)/Y*M)
+    ## Plot Intensity if required
+    if(int_provided) {
+      lines(hawkes$EL[,4],hawkes$intensities[i,]/M*Y,lty=2)
+      axis(4,at=0:Y,labels=(0:Y)/Y*M)
+    }
   }
 }
 
@@ -815,6 +846,23 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
   }
 
   return(G)
+}
+
+## Compute the tuning parameter as in the paper
+compute_omega <- function(hawkes,p,T,gamma_bar,mu=log(2),alpha3=1,N0=3,Cg=1) {
+  ## Compute phi
+  phi_mu <- exp(mu)-mu-1
+
+  ## Compute Integral
+  int <- .Call("compute_Vd_int",as.integer(p),hawkes$EL,as.double(gamma_bar))
+
+  ## Compute Vd
+  Vd <- 4*mu*int/((mu-phi_mu)*p^2*T^2)+4*Cg^2*N0^2*(2+alpha3)*log(p)^3/((mu-phi_mu)*p^2*T^2)
+
+  ## Compute dn
+  dn <- 2*sqrt(Vd*(2+alpha3)*log(p))+2*Cg*N0*(2+alpha3)*log(p)^2/(3*p*T)
+
+  return(2*p*dn)
 }
 
 
