@@ -44,9 +44,9 @@ first q entries of \code{lb} and \code{ub} provide lower and upper bounds on bet
 respectively. The last entry provides a lower (resp. upper) bound on gamma.}
 
 \item{C.ind.pen}{Individual weights for the LASSO estimation of C, which are
-passed to glmnet as penalty.factor. These should sum to \code{p} in order to
-leave the meaning of \code{omega} intact. If \code{NULL} (the default), all vertices
-receive the same weight.}
+passed to glmnet as penalty.factor. The weights are internally rescaled. To
+achieve the criterion function from the paper, set it equal to \code{NULL} (the
+default), then, all vertices receive the same weight.}
 
 \item{fit_theta}{Logical value, if TRUE (the default) the parameters beta and
 gamma are also fitted. If FALSE, beta and gamma are fixed equal to the

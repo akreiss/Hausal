@@ -164,9 +164,9 @@ compute_baseline_intensities <- function(covariates,beta0,alpha,link=exp) {
 #'   first q entries of `lb` and `ub` provide lower and upper bounds on beta,
 #'   respectively. The last entry provides a lower (resp. upper) bound on gamma.
 #' @param C.ind.pen Individual weights for the LASSO estimation of C, which are
-#'   passed to glmnet as penalty.factor. These should sum to `p` in order to
-#'   leave the meaning of `omega` intact. If `NULL` (the default), all vertices
-#'   receive the same weight.
+#'   passed to glmnet as penalty.factor. The weights are internally rescaled. To
+#'   achieve the criterion function from the paper, set it equal to `NULL` (the
+#'   default), then, all vertices receive the same weight.
 #' @param fit_theta Logical value, if TRUE (the default) the parameters beta and
 #'   gamma are also fitted. If FALSE, beta and gamma are fixed equal to the
 #'   provided values in `beta_init`, `gamma_init`.
@@ -407,6 +407,13 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=
 
 LASSO_single_line <- function(Y,i,p,T,M_C,omega,m,C.ind.pen) {
   sdY <- sd(Y[,i])*sqrt((m-1)/m)
+  sdX <- apply(M_C,2,sd)*sqrt((m-1)/m)
+  q <- length(sdX)
+
+  print(apply(t(t(M_C)/sdX),2,mean))
+  print(mean(Y[,i]/sdY))
+  print(apply(t(t(M_C)/sdX),2,sd)*sqrt((m-1)/m))
+  print(sd(Y[,i]/sdY)*sqrt((m-1)/m))
 
   if(sdY==0) {
     ## Y[,i] is identical to zero, in this case the zero vector provides a
@@ -416,8 +423,15 @@ LASSO_single_line <- function(Y,i,p,T,M_C,omega,m,C.ind.pen) {
 
   } else {
     ## Perform LASSO estimation
-    LASSO <- glmnet::glmnet(M_C/sdY,Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p),penalty.factor=C.ind.pen)
-    out <- coef(LASSO,s=T*omega[i]/(m*sdY^2),exact=TRUE,x=M_C/sdY,y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE,penalty.factor=C.ind.pen)[-1]
+    K <- q/sum(C.ind.pen/sdX)
+    pen.weights <- K*C.ind.pen/sdX
+
+    print(q)
+    print(sum(pen.weights))
+
+    LASSO <- glmnet::glmnet(t(t(M_C)/sdX),Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p),penalty.factor=pen.weights)
+    out_raw <- coef(LASSO,s=T*omega[i]/(m*sdY*K),exact=TRUE,x=t(t(M_C)/sdX),y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE,penalty.factor=pen.weights)[-1]
+    out <- sdY*out_raw/sdX
   }
 
   return(out)
