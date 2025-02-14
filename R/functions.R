@@ -1016,3 +1016,250 @@ estimate_hawkes_theta_container <- function(theta,covariates,hawkes,omega,omega_
 
   return(obj)
 }
+
+
+
+
+
+
+
+
+
+estimate_theta_multi_hawkes <- function(theta,multi_covariates,multi_hawkes,omega,omega_alpha,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
+  p <- dim(multi_covariates[[1]]$cov[[1]])[1]
+  q <- dim(multi_covariates[[1]]$cov[[1]])[2]
+  L <- length(multi_covariates[[1]]$times)
+  T <- multi_covariates[[1]]$times[L]
+  K <- length(multi_hawkes)
+
+  beta <- theta[1:q]
+  gamma <- theta[q+1]
+
+  ## Sanity cheks
+  if(length(multi_covariates)!=K) {
+    stop("'multi_hawkes' and 'multi_covariates' must be of the same length")
+  }
+
+  ## Set individual penalties for C estimation to 1 if not provided
+  if(is.null(C.ind.pen)) {
+    C.ind.pen <- rep(1,p)
+  }
+
+  ## Compute Observation Matrix if not provided
+  if(is.null(observation_matrix)) {
+    Xtilde <- create_observation_matrix(p)
+  } else {
+    Xtilde <- observation_matrix
+  }
+  m <- dim(Xtilde)[1]
+
+  ## Set initial values
+  if(is.null(alpha_init)) {
+    alpha <- rep(1,p)
+  } else {
+    alpha <- alpha_init
+  }
+  C <- matrix(NA,ncol=p,nrow=p)
+
+  #### Set dopar if in parallel mode
+  if(!is.null(cluster)) {
+    `%dopar%` <- foreach::`%dopar%`
+  }
+
+  #### Compute design matrices for Lasso estimation
+  ## Compute Gamma
+  Gamma <- matrix(0,nrow=p,ncol=p)
+  for(k in 1:K) {
+    Gamma <-Gamma+matrix(.Call("compute_gamma",as.integer(p),multi_hawkes[[k]]$EL,as.double(gamma),as.double(T)),ncol=p,nrow=p)
+  }
+  decompGamma <- eigen(Gamma,symmetric=TRUE)
+  if(sum(decompGamma$values<=0)>0) {
+    if(sum(decompGamma$values<0)>0) {
+      warning("Gamma has negative eigenvalues. In theory this cannot happen. Either there is a mistake in the program or this is due to numerical inaccuracies. This is taken care of in an ad-hoc fashion.")
+    }
+    ind <- which(decompGamma$values>0)
+
+    eigen_sqrt      <- rep(0,length(decompGamma$values))
+    eigen_sqrt[ind] <- sqrt(decompGamma$values[ind])
+
+    eigen_sqrt_inv <- rep(0,length(decompGamma$values))
+    eigen_sqrt_inv[ind] <- 1/sqrt(decompGamma$values[ind])
+  } else {
+    eigen_sqrt     <-   sqrt(decompGamma$values)
+    eigen_sqrt_inv <- 1/sqrt(decompGamma$values)
+  }
+  Gamma_sqrt_inv <- decompGamma$vectors%*%diag(eigen_sqrt_inv)%*%t(decompGamma$vectors)
+
+  ## Compute design for LASSO estimation in C
+  M_C <- as.matrix(Xtilde%*%decompGamma$vectors%*%diag(eigen_sqrt)%*%t(decompGamma$vectors))
+
+  ## Compute A
+  A <- matrix(0,ncol=p,nrow=p)
+  for(k in 1:K) {
+    A <- A+matrix(.Call("compute_A",as.integer(p),multi_hawkes[[k]]$EL,as.double(gamma),as.double(T)),ncol=p,nrow=p)
+  }
+
+  ## Compute G, V, and v
+  G <- matrix(0,ncol=p,nrow=p)
+  V <- Matrix::Diagonal(p,x=rep(0,p))
+  v <- rep(0,p)
+
+  for(k in 1:K) {
+    ## Multiply covariates with beta
+    mat <- matrix(.Call("multiply_covariates",multi_covariates[[k]],as.double(beta)),nrow=p)
+
+    ## Apply link function to obtain nu0
+    nu0 <- link(mat)
+
+    ## Compute G
+    G <- G+matrix(.Call("compute_G",as.integer(p),multi_hawkes[[k]]$EL,as.double(gamma),as.double(T),nu0,multi_covariates[[k]]$times),ncol=p,nrow=p)
+
+    ## Compute Matrix V
+    V <- V+Matrix::Diagonal(p,rowSums(t(t(nu0[,-L]^2)*(multi_covariates[[k]]$times[-1]-multi_covariates[[k]]$times[-L]))))
+
+    ## Compute Vector v
+    v <- v+.Call("compute_vector_v",multi_hawkes[[k]]$EL,nu0,multi_covariates[[k]]$times)
+  }
+
+  ## Compute square root and its inverse of V
+  Vsqrt <- Matrix::Diagonal(p,sqrt(Matrix::diag(V)))
+  Vsqrt_inv <- Matrix::Diagonal(p,1/sqrt(Matrix::diag(V)))
+
+  ## Compute Design for LASSO estimation in alpha
+  M_alpha <- as.matrix(Xtilde%*%sqrt(V))
+
+  #### Perform Iterative Estimation
+  C_old <- C
+  alpha_old <- alpha
+  par_change <- 0
+  iteration <- 1
+
+  TERMINATION_FLAG <- 0
+  while(TERMINATION_FLAG==0) {
+    #### Estimate C
+    ## Compute response for LASSO estimation
+    Y <- Xtilde%*%Gamma_sqrt_inv%*%(t(A)-t(alpha*G))
+
+    ## Perform LASSO estimation for each vertex
+    if(is.null(cluster)) {
+      ## No parallel computation
+      for(i in 1:p) {
+        C[i,] <- LASSO_single_line(Y,i,p,T,M_C,omega,m,C.ind.pen)
+      }
+    } else {
+      ## Do parallel computations in the provided cluster
+      par_out <- foreach::foreach(i=1:p,.combine=rbind,.packages=c('glmnet'),.inorder=FALSE) %dopar% {
+        c(i,LASSO_single_line(Y,i,p,T,M_C,omega,m,C.ind.pen))
+      }
+      ## Bring output in correct order
+      C <- par_out[order(par_out[,1]),-1]
+    }
+
+    #### Estimate alpha
+    ## Compute response for LASSO estimation
+    Y <- as.numeric(Xtilde%*%Vsqrt_inv%*%matrix(v-diag(C%*%t(G))))
+
+    ## Perform LASSO estimation for alpha
+    sdY <- sd(Y)*sqrt((p-1)/p)
+    LASSO <- glmnet::glmnet(M_alpha/sdY,Y/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p))
+    alpha <- coef(LASSO,s=omega_alpha*p*T/(m*sdY^2),exact=TRUE,x=M_alpha/sdY,y=Y/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE)[-1]
+
+
+    #### Compute progress in alpha and C
+    if(iteration==1) {
+      C_change <- 2*tol
+    } else {
+      C_change <- max(abs(C-C_old))
+    }
+    alpha_change <- max(abs(alpha-alpha_old))
+    alphaC_change <- max(c(C_change,alpha_change))
+
+    #### Compute overall progress
+    max_change <- max(c(C_change,alpha_change))
+
+    #### Print Status
+    if(print.level>0 & iteration>1) {
+      cat(sprintf("Finish Iteration %d/%d, c_change=%f, alpha_change=%f Compare to: %f\n",iteration,max_iteration,C_change,alpha_change,tol))
+    }
+    if(print.level>1) {
+      cat("Estimate for C:\n")
+      print(C)
+      cat("Estimate for alpha:\n")
+      print(alpha)
+    }
+
+    #### Compute if Termination criterion met
+    if(max_change<tol) {
+      TERMINATION_FLAG <- 1
+    } else if(iteration>=max_iteration) {
+      TERMINATION_FLAG <- 1
+    }
+
+    C_old <- C
+    alpha_old <- alpha
+    iteration <- iteration+1
+  }
+
+  return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
+}
+
+#' @export
+MultiHawkes_robust <- function(multi_covariates,multi_hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
+  ## Read information
+  q <- dim(multi_covariates[[1]]$cov[[1]])[2]
+
+  ## Set information for optimisation
+  args_init_opt <- list(algorithm="NLOPT_LN_BOBYQA",xtol_rel=100*tol,print_level=0)
+  args_refi_opt <- list(algorithm="NLOPT_LN_BOBYQA",xtol_rel=tol,print_level=0)
+
+  ## Create starting values
+  starting_par <- matrix(NA,ncol=q+1,nrow=K)
+  for(r in 1:q) {
+    if(is.null(starting_beta)) {
+      k0 <- 0
+    } else {
+      k0 <- dim(starting_beta)[1]
+      starting_par[1:k0,r] <- starting_beta[,r]
+    }
+    if(k0<K) {
+      starting_par[(k0+1):K,r] <- runif(K-k0,min=lb[r],max=ub[r])
+    }
+  }
+  if(is.null(starting_gamma)) {
+    k0 <- 0
+  } else {
+    k0 <- length(starting_gamma)
+    starting_par[1:k0,q+1] <- starting_gamma
+  }
+  if(k0<K) {
+    starting_par[(k0+1):K,q+1] <- runif(K-k0,min=lb[q+1],max=ub[q+1])
+  }
+
+  ## Perform initial optimisation
+  out <- list()
+  obj_vals <- rep(NA,K)
+  for(k in 1:K) {
+    if(print.level>0) {
+      cat("Initial estimation ",k," of ",K,".\n")
+    }
+    out[[k]] <- nloptr::nloptr(starting_par[k,],estimate_theta_multi_hawkes,opts=args_init_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+    obj_vals[k] <- out[[k]]$objective
+  }
+
+  ## Find minimum
+  k0 <- min(which(obj_vals==min(obj_vals)))
+
+  ## Run refining optimisation from optimal value
+  if(print.level>0) {
+    cat("Refinement step\n")
+  }
+  refined_out <- nloptr::nloptr(out[[k0]]$solution,estimate_theta_multi_hawkes,opts=args_refi_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+
+  ## Run last estimate_hawkes to obtain estimates for alpha and C.
+  if(print.level>0) {
+    cat("Run estimate_hawkes on optimal parameter\n")
+  }
+  eh_out <- estimate_theta_multi_hawkes(theta=refined_out$solution,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+
+  return(eh_out)
+}
