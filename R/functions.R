@@ -410,11 +410,6 @@ LASSO_single_line <- function(Y,i,p,T,M_C,omega,m,C.ind.pen) {
   sdX <- apply(M_C,2,sd)*sqrt((m-1)/m)
   q <- length(sdX)
 
-  print(apply(t(t(M_C)/sdX),2,mean))
-  print(mean(Y[,i]/sdY))
-  print(apply(t(t(M_C)/sdX),2,sd)*sqrt((m-1)/m))
-  print(sd(Y[,i]/sdY)*sqrt((m-1)/m))
-
   if(sdY==0) {
     ## Y[,i] is identical to zero, in this case the zero vector provides a
     ## perfect solution to the LASSO problem, however, glmnet requires sdY>0
@@ -425,9 +420,6 @@ LASSO_single_line <- function(Y,i,p,T,M_C,omega,m,C.ind.pen) {
     ## Perform LASSO estimation
     K <- q/sum(C.ind.pen/sdX)
     pen.weights <- K*C.ind.pen/sdX
-
-    print(q)
-    print(sum(pen.weights))
 
     LASSO <- glmnet::glmnet(t(t(M_C)/sdX),Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p),penalty.factor=pen.weights)
     out_raw <- coef(LASSO,s=T*omega[i]/(m*sdY*K),exact=TRUE,x=t(t(M_C)/sdX),y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE,penalty.factor=pen.weights)[-1]
@@ -870,15 +862,22 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
 #'
 #' @param p The number of vertices in the network
 #' @param T The end of the observation period
-#' @param gamma_bar The value of gamma to be used in the formula.
-#' @param mu,alpha3,alpha3_tilde,N0,Cg Additional parameters in the formula.
 #'
 #' @returns `compute_omega` returns a vector of length `p` that contains the
 #'   penalty parameter for each vertex. It can be, e.g., provided to
 #'   estimate_hawkes() as `omega`.
 #'
 #' @export
-compute_omega <- function(hawkes,p,T,gamma_bar,mu=log(2),alpha3=1,alpha3_tilde=0.5,N0=2,Cg=1) {
+compute_omega <- function(hawkes,p,T,Cg,alpha3,gamma_bar,mu=log(2)) {
+  ## Test computation
+  B <- 0
+  for(j in 1:p) {
+    times <- sort(hawkes$EL[hawkes$EL[,3]==j,4])
+    for(k in 1:length(times)) {
+      B <- max(c(B,4*sum(exp(-gamma_bar*(times[i]-times[1:i])))/T))
+    }
+  }
+
   ## Compute phi
   phi_mu <- exp(mu)-mu-1
 
@@ -886,12 +885,12 @@ compute_omega <- function(hawkes,p,T,gamma_bar,mu=log(2),alpha3=1,alpha3_tilde=0
   int <- .Call("compute_Vd_int",as.integer(p),hawkes$EL,as.double(gamma_bar))
 
   ## Compute Vd
-  Vd <- 16*mu*int/((mu-phi_mu)*T^2)+16*Cg^2*N0^2*log(p)^2*((2+alpha3)*log(p)+(1+alpha3_tilde)*log(T))/((mu-phi_mu)*T^2)
+  Vd <- 16*mu*int/((mu-phi_mu)*T^2)+B^2*(log(p)+log(p*T)+alpha3*log(T))/(mu-phi_mu)
 
   ## Compute dn
-  dn <- 2*sqrt(Vd*((2+alpha3)*log(p)+(1+alpha3_tilde)*log(T)))+4*Cg*N0*log(p)*((2+alpha3)*log(p)+(1+alpha3_tilde)*log(T))/(3*T)
+  dn <- 2*sqrt(Vd*(log(p)+log(p*T)+alpha3*log(T)))+B*(log(p)+log(p*T)+alpha3*log(T))/3
 
-  return(2*dn)
+  return(dn)
 }
 
 

@@ -36,11 +36,7 @@ adjacency matrix.}
 \item{omega_alpha}{A non-negative number, containing the tuning parameter for
 the LASSO penalty with respect to the individuals intensities a.}
 
-\item{lb}{Vectors of length q+1, q equals the dimension of covariates. The
-first q entries of \code{lb} and \code{ub} provide lower and upper bounds on beta,
-respectively. The last entry provides a lower (resp. upper) bound on gamma.}
-
-\item{ub}{Vectors of length q+1, q equals the dimension of covariates. The
+\item{lb, ub}{Vectors of length q+1, q equals the dimension of covariates. The
 first q entries of \code{lb} and \code{ub} provide lower and upper bounds on beta,
 respectively. The last entry provides a lower (resp. upper) bound on gamma.}
 

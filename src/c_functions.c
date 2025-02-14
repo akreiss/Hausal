@@ -1038,7 +1038,8 @@ SEXP compute_Vd_int(SEXP p_R,SEXP event_list,SEXP gamma_bar_R)
       v[j]=exp(-gamma_bar*(t-old_t))*v[j];
       mat[i+j*p]=mat[i+j*p]+v[j]*v[j];
     }
-    v[i]=v[i]+1;
+    old_t=t;
+    v[i]=v[i]+1.0;
   }
 
   // Find maximum

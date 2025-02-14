@@ -4,26 +4,12 @@
 \alias{compute_omega}
 \title{Compute the tuning parameter omega according to theory}
 \usage{
-compute_omega(
-  hawkes,
-  p,
-  T,
-  gamma_bar,
-  mu = log(2),
-  alpha3 = 1,
-  alpha3_tilde = 0.5,
-  N0 = 2,
-  Cg = 1
-)
+compute_omega(hawkes, p, T, A, Cg, alpha3, gamma_bar, mu = log(2))
 }
 \arguments{
 \item{p}{The number of vertices in the network}
 
 \item{T}{The end of the observation period}
-
-\item{gamma_bar}{The value of gamma to be used in the formula.}
-
-\item{mu, alpha3, alpha3_tilde, N0, Cg}{Additional parameters in the formula.}
 }
 \value{
 \code{compute_omega} returns a vector of length \code{p} that contains the
