@@ -658,6 +658,67 @@ NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=NULL,p
   return(list(first_stage=est_first_stage,second_stage=est_second_stage,debiasing=debiased_est))
 }
 
+#' @export
+NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
+  ## Read information
+  q <- dim(covariates$cov[[1]])[2]
+
+  ## Set information for optimisation
+  args_init_opt <- list(algorithm="NLOPT_LN_BOBYQA",xtol_rel=100*tol,print_level=0)
+  args_refi_opt <- list(algorithm="NLOPT_LN_BOBYQA",xtol_rel=tol,print_level=0)
+
+  ## Create starting values
+  starting_par <- matrix(NA,ncol=q+1,nrow=K)
+  for(r in 1:q) {
+    if(is.null(starting_beta)) {
+      k0 <- 0
+    } else {
+      k0 <- dim(starting_beta)[1]
+      starting_par[1:k0,r] <- starting_beta[,r]
+    }
+    if(k0<K) {
+      starting_par[(k0+1):K,r] <- runif(K-k0,min=lb[r],max=ub[r])
+    }
+  }
+  if(is.null(starting_gamma)) {
+    k0 <- 0
+  } else {
+    k0 <- length(starting_gamma)
+    starting_par[1:k0,q+1] <- starting_gamma
+  }
+  if(k0<K) {
+    starting_par[(k0+1):K,q+1] <- runif(K-k0,min=lb[q+1],max=ub[q+1])
+  }
+
+  ## Perform initial optimisation
+  out <- list()
+  obj_vals <- rep(NA,K)
+  for(k in 1:K) {
+    if(print.level>0) {
+      cat("Initial estimation ",k," of ",K,".\n")
+    }
+    out[[k]] <- nloptr::nloptr(starting_par[k,],estimate_hawkes_theta_container,opts=args_init_opt,ub=ub,lb=lb,covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+    obj_vals[k] <- out[[k]]$objective
+  }
+
+  ## Find minimum
+  k0 <- min(which(obj_vals==min(obj_vals)))
+
+  ## Run refining optimisation from optimal value
+  if(print.level>0) {
+    cat("Refinement step\n")
+  }
+  refined_out <- nloptr::nloptr(out[[k0]]$solution,estimate_hawkes_theta_container,opts=args_refi_opt,ub=ub,lb=lb,covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+
+  ## Run last estimate_hawkes to obtain estimates for alpha and C.
+  if(print.level>0) {
+    cat("Run estimate_hawkes on optimal parameter\n")
+  }
+  eh_out <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=NULL,ub=NULL,C.ind.pen=C.ind.pen,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=refined_out$solution[1:q],gamma_init=refined_out$solution[q+1],alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+
+  return(eh_out)
+}
+
 #' Compute Observation Matrix
 #'
 #' The observation matrix of dimension n required to handle the missing
@@ -938,4 +999,20 @@ compute_lest_squares_theta <- function(par,covariates,C,alpha,hawkes,link) {
   LS <- as.numeric(matrix(alpha,nrow=1)%*%V%*%matrix(alpha,ncol=1)+sum(diag(C%*%Gamma%*%t(C)))+2*sum(alpha*diag(C%*%t(G)))-2*sum(alpha*v)-2*sum(diag(C%*%t(A))))
 
   return(LS)
+}
+
+## This function requires all options from estimate_hawkes other than fit_theta, beta_init, gamma_init.
+estimate_hawkes_theta_container <- function(theta,covariates,hawkes,omega,omega_alpha,C.ind.pen,print.level,max_iteration,tol,alpha_init,link,observation_matrix,cluster) {
+  ## Read information from data
+  p <- dim(C)[1]
+  q <- length(theta)-1
+  T <- covariates$times[length(covariates$times)]
+
+  ## Compute optimal C and alpha
+  opt_theta <- estimate_hawkes(fit_theta=FALSE,beta_init=theta[1:q],gamma_init=theta[q+1],covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+
+  ## Compute objective
+  obj <- compute_lest_squares_theta(par=theta,covariates=covariates,C=opt_theta$C,alpha=opt_theta$alpha,hawkes=hawkes,link=link)
+
+  return(obj)
 }
