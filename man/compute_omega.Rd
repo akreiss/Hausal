@@ -4,26 +4,18 @@
 \alias{compute_omega}
 \title{Compute the tuning parameter omega according to theory}
 \usage{
-compute_omega(
-  hawkes,
-  p,
-  T,
-  gamma_bar,
-  mu = log(2),
-  alpha3 = 1,
-  alpha3_tilde = 0.5,
-  N0 = 2,
-  Cg = 1
-)
+compute_omega(hawkes, p, T, alpha3, gamma_bar, mu = log(2))
 }
 \arguments{
+\item{hawkes}{The observed point process. This is a list with at least the
+element \code{EL}. This element needs to have the same matrix form as in the
+output of \code{\link[=simulate_hawkes]{simulate_hawkes()}}.}
+
 \item{p}{The number of vertices in the network}
 
 \item{T}{The end of the observation period}
 
-\item{gamma_bar}{The value of gamma to be used in the formula.}
-
-\item{mu, alpha3, alpha3_tilde, N0, Cg}{Additional parameters in the formula.}
+\item{alpha3, gamma_bar, mu}{Additional parameters that are required for the computation, cf. Details.}
 }
 \value{
 \code{compute_omega} returns a vector of length \code{p} that contains the
@@ -33,4 +25,7 @@ estimate_hawkes() as \code{omega}.
 \description{
 \code{compute_omega} computes a vector of tuning parameters according to the
 theoretic results provided in our paper.
+}
+\details{
+This function computes the tuning parameter as suggested through Lemma 3.5 in our paper. However, we do not use N_0 as in the paper but compute the stochastic integral from the proof. \code{gamma_bar} is the value for gamma that will be used for this. The remaining parameterst have the same meaning as in Lemma 3.5.
 }
