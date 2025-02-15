@@ -929,13 +929,15 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
 #'   estimate_hawkes() as `omega`.
 #'
 #' @export
-compute_omega <- function(hawkes,p,T,Cg,alpha3,gamma_bar,mu=log(2)) {
+compute_omega <- function(hawkes,p,T,alpha3,gamma_bar,mu=log(2)) {
   ## Test computation
   B <- 0
   for(j in 1:p) {
     times <- sort(hawkes$EL[hawkes$EL[,3]==j,4])
-    for(k in 1:length(times)) {
-      B <- max(c(B,4*sum(exp(-gamma_bar*(times[i]-times[1:i])))/T))
+    if(length(times)>0) {
+      for(k in 1:length(times)) {
+        B <- max(c(B,4*sum(exp(-gamma_bar*(times[k]-times[1:k])))/T))
+      }
     }
   }
 
@@ -1025,7 +1027,7 @@ estimate_hawkes_theta_container <- function(theta,covariates,hawkes,omega,omega_
 
 
 
-estimate_theta_multi_hawkes <- function(theta,multi_covariates,multi_hawkes,omega,omega_alpha,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
+estimate_theta_multi_hawkes <- function(theta,multi_covariates,multi_hawkes,omega,omega_alpha,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL,return_objective=FALSE) {
   p <- dim(multi_covariates[[1]]$cov[[1]])[1]
   q <- dim(multi_covariates[[1]]$cov[[1]])[2]
   L <- length(multi_covariates[[1]]$times)
@@ -1200,7 +1202,12 @@ estimate_theta_multi_hawkes <- function(theta,multi_covariates,multi_hawkes,omeg
     iteration <- iteration+1
   }
 
-  return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
+  if(return_objective) {
+    return(as.numeric((t(alpha)%*%V%*%alpha+sum(diag(C%*%Gamma))+2*sum(alpha*diag(C%*%t(G)))-2*sum(alpha*v)-2*sum(diag(C%*%t(A))))/(p*T)))
+  } else {
+    return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
+  }
+
 }
 
 #' @export
@@ -1242,7 +1249,7 @@ MultiHawkes_robust <- function(multi_covariates,multi_hawkes,omega,omega_alpha,l
     if(print.level>0) {
       cat("Initial estimation ",k," of ",K,".\n")
     }
-    out[[k]] <- nloptr::nloptr(starting_par[k,],estimate_theta_multi_hawkes,opts=args_init_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+    out[[k]] <- nloptr::nloptr(starting_par[k,],estimate_theta_multi_hawkes,opts=args_init_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster,return_objective=TRUE)
     obj_vals[k] <- out[[k]]$objective
   }
 
@@ -1253,7 +1260,7 @@ MultiHawkes_robust <- function(multi_covariates,multi_hawkes,omega,omega_alpha,l
   if(print.level>0) {
     cat("Refinement step\n")
   }
-  refined_out <- nloptr::nloptr(out[[k0]]$solution,estimate_theta_multi_hawkes,opts=args_refi_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+  refined_out <- nloptr::nloptr(out[[k0]]$solution,estimate_theta_multi_hawkes,opts=args_refi_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster,return_objective=TRUE)
 
   ## Run last estimate_hawkes to obtain estimates for alpha and C.
   if(print.level>0) {
