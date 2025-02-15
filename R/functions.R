@@ -405,31 +405,6 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=
   return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
 }
 
-LASSO_single_line <- function(Y,i,p,T,M_C,omega,m,C.ind.pen) {
-  sdY <- sd(Y[,i])*sqrt((m-1)/m)
-  sdX <- apply(M_C,2,sd)*sqrt((m-1)/m)
-  q <- length(sdX)
-
-  if(sdY==0) {
-    ## Y[,i] is identical to zero, in this case the zero vector provides a
-    ## perfect solution to the LASSO problem, however, glmnet requires sdY>0
-    ## to work properly.
-    out <- rep(0,p)
-
-  } else {
-    ## Perform LASSO estimation
-    K <- q/sum(C.ind.pen/sdX)
-    pen.weights <- K*C.ind.pen/sdX
-
-    LASSO <- glmnet::glmnet(t(t(M_C)/sdX),Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p),penalty.factor=pen.weights)
-    out_raw <- coef(LASSO,s=T*omega[i]/(m*sdY*K),exact=TRUE,x=t(t(M_C)/sdX),y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE,penalty.factor=pen.weights)[-1]
-    out <- sdY*out_raw/sdX
-  }
-
-  return(out)
-}
-
-
 #' De-Bias a Given Estimator
 #'
 #' `debias_hawkes` takes an estimator, e.g., computed through
@@ -658,8 +633,36 @@ NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=NULL,p
   return(list(first_stage=est_first_stage,second_stage=est_second_stage,debiasing=debiased_est))
 }
 
+
+
+#' Compute a Complete Estimator Using Multiple Starting Points
+#'
+#' [NetHawkes_robust()] works similarly as [NetHawkes()] but it uses a
+#' different optimization strategy. See Details for a precise description
+#' of the differences.
+#'
+#' [NetHawkes_robust()] starts the optimization from `K` random starting
+#' values for beta and gamma. If the user supplies some starting values in
+#' `starting_beta` and `starting_gamma`, these will be extend by random values
+#' selected uniformly between the supplied boundaries in `lb` and `ub`. Then,
+#' the `nloptr` is used to optimize with respect to (beta,gamma), while for each
+#' value of (beta,gamma), [estimate_hawkes()] will be run for fixed (beta,gamma)
+#' to find the optimal value. Then, we take the minimum of all `K` results. These
+#' runds of `nloptr` are computed with tolerance level given by 1000 times `tol`.
+#' The optimal value is then refined by another run as before initialized with the
+#' minimzer and tolerance level `tol`.
+#'
+#' All descrbibed changes affect the first stage estimator only. The later stages remain the same as in [NetHawkes()]
+#'
+#' @inheritParams NetHawkes
+#' @param K Number of starting values to use
+#' @param starting_beta Matrix, each row of which corresponds to a starting value for beta to be used
+#' @param starting_gamma Vector, each entry of which corresponds to a starting value for gamma to be used
+#'
+#' @return The retuned value is a list of the same structure as for [NetHawkes()] but with an additional element `nloptr` that contains the complete output of the refinement call from `nloptr`. This allows, e.g., to check for convergence of the optimization.
+#'
 #' @export
-NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
+NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL) {
   ## Read information
   q <- dim(covariates$cov[[1]])[2]
 
@@ -690,6 +693,7 @@ NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,startin
     starting_par[(k0+1):K,q+1] <- runif(K-k0,min=lb[q+1],max=ub[q+1])
   }
 
+  #### Robust first stage estimation
   ## Perform initial optimisation
   out <- list()
   obj_vals <- rep(NA,K)
@@ -697,7 +701,7 @@ NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,startin
     if(print.level>0) {
       cat("Initial estimation ",k," of ",K,".\n")
     }
-    out[[k]] <- nloptr::nloptr(starting_par[k,],estimate_hawkes_theta_container,opts=args_init_opt,ub=ub,lb=lb,covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+    out[[k]] <- nloptr::nloptr(starting_par[k,],estimate_hawkes_theta_container,opts=args_init_opt,ub=ub,lb=lb,covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
     obj_vals[k] <- out[[k]]$objective
   }
 
@@ -708,15 +712,28 @@ NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,startin
   if(print.level>0) {
     cat("Refinement step\n")
   }
-  refined_out <- nloptr::nloptr(out[[k0]]$solution,estimate_hawkes_theta_container,opts=args_refi_opt,ub=ub,lb=lb,covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+  refined_out <- nloptr::nloptr(out[[k0]]$solution,estimate_hawkes_theta_container,opts=args_refi_opt,ub=ub,lb=lb,covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
 
   ## Run last estimate_hawkes to obtain estimates for alpha and C.
   if(print.level>0) {
     cat("Run estimate_hawkes on optimal parameter\n")
   }
-  eh_out <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=NULL,ub=NULL,C.ind.pen=C.ind.pen,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=refined_out$solution[1:q],gamma_init=refined_out$solution[q+1],alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+  eh_out <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=NULL,ub=NULL,C.ind.pen=C.ind.pen,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=refined_out$solution[1:q],gamma_init=refined_out$solution[q+1],alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
 
-  return(eh_out)
+
+  #### Debiasing
+  if(print.level>0) {
+    cat("Debias the first stage estimator.\n")
+  }
+  debiased_est <- debias_Hawkes(covariates=covariates,hawkes=hawkes,est_hawkes=eh_out,link=link,observation_matrix=observation_matrix_debiasing)
+
+  ## Compute Network estimate with debiased estimator
+  if(print.level>0) {
+    cat("Compute second stage estimator.\n")
+  }
+  est_second_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=NULL,ub=NULL,C.ind.pen=C.ind.pen,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=debiased_est$beta_debiased,gamma_init=debiased_est$gamma_debiased,alpha_init=eh_out$alpha,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
+
+  return(list(first_stage=eh_out,second_stage=est_second_stage,debiasing=debiased_est,nloptr=refined_out))
 }
 
 #' Compute Observation Matrix
@@ -921,8 +938,12 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
 #' `compute_omega` computes a vector of tuning parameters according to the
 #' theoretic results provided in our paper.
 #'
+#' This function computes the tuning parameter as suggested through Lemma 3.5 in our paper. However, we do not use N_0 as in the paper but compute the stochastic integral from the proof. `gamma_bar` is the value for gamma that will be used for this. The remaining parameterst have the same meaning as in Lemma 3.5.
+#'
+#' @inheritParams estimate_hawkes
 #' @param p The number of vertices in the network
 #' @param T The end of the observation period
+#' @param alpha3,gamma_bar,mu Additional parameters that are required for the computation, cf. Details.
 #'
 #' @returns `compute_omega` returns a vector of length `p` that contains the
 #'   penalty parameter for each vertex. It can be, e.g., provided to
@@ -968,6 +989,31 @@ compute_omega <- function(hawkes,p,T,alpha3,gamma_bar,mu=log(2)) {
 
 
 #### The functions below are typically not directly called by the user.
+LASSO_single_line <- function(Y,i,p,T,M_C,omega,m,C.ind.pen) {
+  sdY <- sd(Y[,i])*sqrt((m-1)/m)
+  sdX <- apply(M_C,2,sd)*sqrt((m-1)/m)
+  q <- length(sdX)
+
+  if(sdY==0) {
+    ## Y[,i] is identical to zero, in this case the zero vector provides a
+    ## perfect solution to the LASSO problem, however, glmnet requires sdY>0
+    ## to work properly.
+    out <- rep(0,p)
+
+  } else {
+    ## Perform LASSO estimation
+    K <- q/sum(C.ind.pen/sdX)
+    pen.weights <- K*C.ind.pen/sdX
+
+    LASSO <- glmnet::glmnet(t(t(M_C)/sdX),Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p),penalty.factor=pen.weights)
+    out_raw <- coef(LASSO,s=T*omega[i]/(m*sdY*K),exact=TRUE,x=t(t(M_C)/sdX),y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE,penalty.factor=pen.weights)[-1]
+    out <- sdY*out_raw/sdX
+  }
+
+  return(out)
+}
+
+
 compute_lest_squares_theta <- function(par,covariates,C,alpha,hawkes,link) {
   p <- dim(C)[1]
   q <- length(par)-1
@@ -1251,6 +1297,14 @@ MultiHawkes_robust <- function(multi_covariates,multi_hawkes,omega,omega_alpha,l
     }
     out[[k]] <- nloptr::nloptr(starting_par[k,],estimate_theta_multi_hawkes,opts=args_init_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster,return_objective=TRUE)
     obj_vals[k] <- out[[k]]$objective
+  }
+  if(print.level>0) {
+    cat("Found values of the objective:\n")
+    print(obj_vals)
+    cat("Corresponding parameters are:\n")
+    for(k in 1:K) {
+      print(out[[k]]$solution)
+    }
   }
 
   ## Find minimum
