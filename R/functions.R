@@ -1049,6 +1049,41 @@ compute_lest_squares_theta <- function(par,covariates,C,alpha,hawkes,link) {
   return(LS)
 }
 
+compute_individual_lest_squares_theta <- function(par,covariates,C,alpha,hawkes,link) {
+  p <- dim(C)[1]
+  q <- length(par)-1
+  beta <- par[1:q]
+  gamma <- par[q+1]
+  L <- length(covariates$times)
+  T <- covariates$times[L]
+
+  ## Multiply covariates with beta
+  mat <- matrix(.Call("multiply_covariates",covariates,as.double(beta)),nrow=p)
+
+  ## Apply link function to obtain nu0
+  nu0 <- link(mat)
+
+  ## Compute Matrix V
+  V <- Matrix::Diagonal(p,rowSums(t(t(nu0[,-L]^2)*(covariates$times[-1]-covariates$times[-L]))))
+
+  ## Compute Vector v
+  v <- .Call("compute_vector_v",hawkes$EL,nu0,covariates$times)
+
+  ## Compute Gamma
+  Gamma <- matrix(.Call("compute_gamma",as.integer(p),hawkes$EL,as.double(gamma),as.double(T)),ncol=p,nrow=p)
+
+  ## Compute G
+  G <- matrix(.Call("compute_G",as.integer(p),hawkes$EL,as.double(gamma),as.double(T),nu0,covariates$times),ncol=p,nrow=p)
+
+  ## Compute A
+  A <- matrix(.Call("compute_A",as.integer(p),hawkes$EL,as.double(gamma),as.double(T)),ncol=p,nrow=p)
+
+  ## Compute Least squares criterion
+  LS <- alpha^2*diag(V)+rowSums((C%*%Gamma)*C)+2*alpha*diag(C%*%t(G))-2*alpha*v-2*diag(C%*%t(A))
+
+  return(LS)
+}
+
 ## This function requires all options from estimate_hawkes other than fit_theta, beta_init, gamma_init.
 estimate_hawkes_theta_container <- function(theta,covariates,hawkes,omega,omega_alpha,C.ind.pen,print.level,max_iteration,tol,alpha_init,link,observation_matrix,cluster) {
   ## Read information from data
@@ -1323,4 +1358,107 @@ MultiHawkes_robust <- function(multi_covariates,multi_hawkes,omega,omega_alpha,l
   eh_out <- estimate_theta_multi_hawkes(theta=refined_out$solution,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
 
   return(eh_out)
+}
+
+#' @export
+cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,tf=0.8,M=5,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
+  ## Read information
+  K <- length(multi_Hawkes)
+  T <- max(multi_covariates[[1]]$times)
+  p <- dim(multi_Hawkes[[1]]$cov[[1]])[1]
+  phi <- (1+sqrt(5))/2
+
+  ## Compute training time
+  training_time <- max(multi_covariates[[1]]$times<tf*T)
+
+  ## Split data in training and test data
+  training_hawkes <- list()
+  training_covariates <- list()
+  test_hawkes <- list()
+  test_covariates <- list()
+
+  for(k in 1:K) {
+    ## Find training and test indices in edge list
+    trai_ind <- which(multi_Hawkes[[k]]$EL[,4]<=training_time)
+    test_ind <- which(multi_Hawkes[[k]]$EL[,4]> training_time)
+    trai_EL <- multi_Hawkes[[k]]$EL[trai_ind,]
+    test_EL <- multi_Hawkes[[k]]$EL[test_ind,]
+    test_EL[,4] <- test_EL[,4]-training_time
+
+    ## Save Hawkes training and test Data
+    training_hawkes[[k]]$EL <- trai_EL[order(trai_EL[,4]),]
+        test_hawkes[[k]]$EL <- test_EL[order(test_EL[,4]),]
+
+    ## Get training and test time indices in covariates
+    trai_cov_ind <- which(multi_covariates[[k]]$times<=training_time)
+    test_cov_ind <- which(multi_covariates[[k]]$times >training_time)
+
+    ## Write new time vectors
+    training_covariates[[1]]$times <- multi_covariates[[k]]$times[trai_cov_ind]
+        test_covariates[[1]]$times <- multi_covariates[[k]]$times[test_cov_ind]-training_time
+
+    ## Copy covariates to respective dataset
+    training_covariates[[k]]$cov <- list()
+        test_covariates[[k]]$cov <- list()
+    last_training_index <- max(trai_cov_ind)
+
+    for(i in 1:last_training_index) {
+      ## Add to training set
+      training_covariates[[k]]$cov[[i]] <- multi_covariates[[k]]$cov[[i]]
+    }
+    for(i in (last_training_index+1):length(multi_covariates[[k]]$cov)) {
+      ## Add to test set
+      test_covariates[[k]]$cov[[i-last_training_index]] <- multi_covariates[[k]]$cov[[i]]
+    }
+  }
+
+  ## Prepare result matrices
+  computed_omega <- matrix(NA,nrow=2*M+1,ncol=p)
+  LSvals <- matrix(0,nrow=2*M+1,ncol=p)
+  omega_ub <- omega_start
+  omega_lb <- rep(0,p)
+
+  ## Perform Golden-Section search
+  for(m in 1:M) {
+    ## Compute interior points
+    omega1 <- omega_ub-(omega_ub-omega_lb)/phi
+    omega2 <- omega_lb+(omega_ub-omega_lb)/phi
+
+    ## Save omegas
+    computed_omega[2*m-1,] <- omega1
+    computed_omega[2*m  ,] <- omega2
+
+    ## Compute estimates
+    est1 <- MultiHawkes_robust(training_covariates,training_hawkes,omega1,omega_alpha=0,lb=lb,ub=ub,K=K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+    est2 <- MultiHawkes_robust(training_covariates,training_hawkes,omega2,omega_alpha=0,lb=lb,ub=ub,K=K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+
+    ## Compute corresponding least squares
+    for(k in 1:K) {
+      LSvals[2*m-1,k] <- LSvals[2*m-1,k]+compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),test_covariates[[k]],est1$C,est1$alpha,training_hawkes[[k]],link=link)
+      LSvals[2*m  ,k] <- LSvals[2*m  ,k]+compute_individual_lest_squares_theta(c(est2$beta,est2$gamma),test_covariates[[k]],est2$C,est2$alpha,training_hawkes[[k]],link=link)
+    }
+
+    ## Compute new bounds
+    upper_better <- which(LSvals[2*m-1,]> LSvals[2*m,])
+    lower_better <- which(LSvals[2*m-1,]<=LSvals[2*m,])
+    omega_lb[upper_better] <- omega1[upper_better]
+    omega_ub[lower_better] <- omega2[lower_better]
+  }
+
+  ## Compute Estimate for the mid point of the resulting interval
+  omega_mid <- (omega_lb+omega_ub)/2
+  computed_omega[2*M+1,] <- omega_mid
+  est <- MultiHawkes_robust(training_covariates,training_hawkes,omega_mid,omega_alpha=0,lb=lb,ub=ub,K=K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+  for(k in 1:K) {
+    LSvals[2*M+1,k] <- LSvals[2*M+1,k]+compute_individual_lest_squares_theta(c(est$beta,est$gamma),test_covariates[[k]],est$C,est$alpha,training_hawkes[[k]],link=link)
+  }
+
+  ## Find minimum
+  return_omega <- rep(NA,p)
+  for(i in 1:p) {
+    min_ind <- which(LSvals[,i]==min(LSvals[,i]))
+    return_omega[i] <- min(computed_omega[min_ind,i])
+  }
+
+  return(list(omega=return_omega,computed_omega=computed_omega,LSvals=LSvals))
 }
