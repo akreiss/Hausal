@@ -551,16 +551,20 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   #### Compute Nodewise LASSO for the first columns of Sigma corresponding to beta and gamma
   ## Compute Nodewise LASSO using sigma from the paper
   Theta_tilde <- matrix(NA,ncol=1+q+p+p^2,nrow=q+1)
+  sparsity <- 1+sum(est_hawkes$C!=0)/p+sum(rowSums(est_hawkes$C)^2)/p
+  pen_weight <- 1/(p^(3/2)*log(p*T)^4*sparsity)
   for(j in 1:(q+1)) {
     Z <- as.numeric(tildeX%*%Sigma[,j])
     M <- as.matrix(tildeX%*%Sigma[,-j])
     m <- length(Z)
-    node_lasso_sd <- sd(Z)*sqrt((m-1)/m)
-    sparsity <- sum(est_hawkes$alpha!=0)/p+sum(est_hawkes$C!=0)+sum(rowSums(est_hawkes$C!=0)^2)/p
-    pen_weight <- 1/(T*p^(3/2)*log(p*T)^4*log(p)*sparsity)
+    node_lasso_Zsd <- sd(Z)*sqrt((m-1)/m)
+    node_lasso_Msd <- apply(M,2,sd)*sqrt((m-1)/m)
+    nvars <- dim(Sigma)[2]-1
 
-    node_wise_lasso <- glmnet::glmnet(M/node_lasso_sd,Z/node_lasso_sd,intercept=FALSE,standardize=FALSE,thresh=1e-14,maxit=100000000)
-    vec <- coef(node_wise_lasso,s=pen_weight/(m*node_lasso_sd^2),exact=TRUE,x=M/node_lasso_sd,y=Z/node_lasso_sd,intercept=FALSE,standardize=FALSE)[-1]
+    weight_scaling <- nvars/sum(1/node_lasso_Msd)
+
+    node_wise_lasso <- glmnet::glmnet(t(t(M)/node_lasso_Msd),Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,penalty.factor=weight_scaling/node_lasso_Msd,thresh=1e-14,maxit=100000000)
+    vec <- node_lasso_Zsd*coef(node_wise_lasso,s=pen_weight/(node_lasso_Zsd*m*weight_scaling),exact=TRUE,x=t(t(M)/node_lasso_Msd),y=Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,penalty.factor=weight_scaling/node_lasso_Msd)[-1]/node_lasso_Msd
 
     tau <- as.numeric((Sigma%*%Sigma)[j,j]-matrix((Sigma%*%Sigma)[j,-j],nrow=1)%*%vec)
     if(tau==0) {
@@ -577,7 +581,7 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   ## Compute De-Biased Estimator
   theta_debiased <- c(est_hawkes$beta,est_hawkes$gamma)-Theta%*%matrix(grad,ncol=1)
 
-  return(list(grad=grad,Sigma=Sigma,Theta=Theta,beta_debiased=theta_debiased[1:q],gamma_debiased=theta_debiased[q+1]))
+  return(list(grad=grad,Sigma=Sigma,Theta=Theta,beta_debiased=theta_debiased[1:q],gamma_debiased=theta_debiased[q+1],tuning_parameter=pen_weight))
 }
 
 #' Computes a Complete Estimator with All Stages
