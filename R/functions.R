@@ -427,6 +427,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=
 #'    via node-wise LASSO.
 #'  * `beta_debiased`: De-biased estimate for beta.
 #'  * `gamma_debiased`: De-biased estimate for gamma.
+#'  * `tuning_parameter`: The value that is used for all sigma_j
 #'
 #' @export
 debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matrix=NULL) {
