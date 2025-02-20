@@ -881,7 +881,8 @@ plot_count_intensities <- function(hawkes,T,names=NULL) {
     ## Plot Intensity if required
     if(int_provided) {
       lines(hawkes$EL[,4],hawkes$intensities[i,]/M*Y,lty=2)
-      axis(4,at=0:Y,labels=(0:Y)/Y*M)
+      label_positions <- c(0,round((1:4)/5*Y),Y)
+      axis(4,at=label_positions,labels=round(label_positions/Y*M,digits=2))
     }
   }
 }
