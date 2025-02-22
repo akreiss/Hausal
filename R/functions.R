@@ -657,14 +657,20 @@ NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=NULL,p
 #' The optimal value is then refined by another run as before initialized with the
 #' minimzer and tolerance level `tol`.
 #'
-#' All descrbibed changes affect the first stage estimator only. The later stages remain the same as in [NetHawkes()]
+#' All descrbibed changes affect the first stage estimator only. The later
+#' stages remain the same as in [NetHawkes()]
 #'
 #' @inheritParams NetHawkes
 #' @param K Number of starting values to use
-#' @param starting_beta Matrix, each row of which corresponds to a starting value for beta to be used
-#' @param starting_gamma Vector, each entry of which corresponds to a starting value for gamma to be used
+#' @param starting_beta Matrix, each row of which corresponds to a starting
+#'   value for beta to be used
+#' @param starting_gamma Vector, each entry of which corresponds to a starting
+#'   value for gamma to be used
 #'
-#' @return The retuned value is a list of the same structure as for [NetHawkes()] but with an additional element `nloptr` that contains the complete output of the refinement call from `nloptr`. This allows, e.g., to check for convergence of the optimization.
+#' @return The retuned value is a list of the same structure as for [NetHawkes()]
+#'   but with an additional element `nloptr` that contains the complete output
+#'   of the refinement call from `nloptr`. This allows, e.g., to check for
+#'   convergence of the optimization.
 #'
 #' @export
 NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL) {
@@ -944,12 +950,17 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
 #' `compute_omega` computes a vector of tuning parameters according to the
 #' theoretic results provided in our paper.
 #'
-#' This function computes the tuning parameter as suggested through Lemma 3.5 in our paper. However, we do not use N_0 as in the paper but compute the stochastic integral from the proof. `gamma_bar` is the value for gamma that will be used for this. The remaining parameterst have the same meaning as in Lemma 3.5.
+#' This function computes the tuning parameter as suggested through Lemma 3.5 in
+#' our paper. However, we do not use N_0 as in the paper but compute the
+#' stochastic integral from the proof. `gamma_bar` is the value for gamma that
+#' will be used for this. The remaining parameterst have the same meaning as in
+#' Lemma 3.5.
 #'
 #' @inheritParams estimate_hawkes
 #' @param p The number of vertices in the network
 #' @param T The end of the observation period
-#' @param alpha3,gamma_bar,mu Additional parameters that are required for the computation, cf. Details.
+#' @param alpha3,gamma_bar,mu Additional parameters that are required for the
+#'   computation, cf. Details.
 #'
 #' @returns `compute_omega` returns a vector of length `p` that contains the
 #'   penalty parameter for each vertex. It can be, e.g., provided to
@@ -982,6 +993,263 @@ compute_omega <- function(hawkes,p,T,alpha3,gamma_bar,mu=log(2)) {
 
   return(dn)
 }
+
+#' Estimate the parameters from a multiple Hawkes process
+#'
+#' `MultiHawkes_robust` estimates the parameters of a Causal Hawkes process as
+#' described in the paper when several realisations of this process are provided.
+#'
+#' Suppose that you have several observation from the same Hawkes causal model
+#' as in our paper, that is, the parameters are the same for all realisations but
+#' the covariates might be potentially different. `MultiHawkes_robust` estimates
+#' this parameter by optimizing the following loss function:
+#'
+#' Sum over k ( Least squares loss for realisation k) + Penalty
+#'
+#' where the penalty equals
+#'
+#' Sum over i( omega[i]*sum(C[i,])) + omega_alpha*sum(alpha).
+#'
+#' The estimation method is the same as in [NetHawkes_robust()]. De-biasing is
+#' not supported for multi observations.
+#'
+#' @inheritParams NetHawkes_robust
+#' @param multi_covariates A list each entry of which contains a `covariate` as
+#'   described in, e.g., [NetHawkes_robust()]. Each entry of the list corresponds to
+#'   another realisation of the Hawkes process.
+#' @param multi_hawkes A list each entry of which contains a Hawkes process in
+#'   the same format as for, e.g, [NetHawkes_robust()]. Each entry of
+#'   `multi_hawkes` corresponds to one realisation of the Hawkes process.
+#'
+#' @returns `MultiHawkes_robust` returns a list containing the estimates for the
+#'   parameters `C`, `alpha`, `beta`, and `gamma`.
+#'
+#' @export
+MultiHawkes_robust <- function(multi_covariates,multi_hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
+  ## Read information
+  q <- dim(multi_covariates[[1]]$cov[[1]])[2]
+
+  ## Set information for optimisation
+  args_init_opt <- list(algorithm="NLOPT_LN_BOBYQA",xtol_rel=100*tol,print_level=0)
+  args_refi_opt <- list(algorithm="NLOPT_LN_BOBYQA",xtol_rel=tol,print_level=0)
+
+  ## Create starting values
+  starting_par <- matrix(NA,ncol=q+1,nrow=K)
+  for(r in 1:q) {
+    if(is.null(starting_beta)) {
+      k0 <- 0
+    } else {
+      k0 <- dim(starting_beta)[1]
+      starting_par[1:k0,r] <- starting_beta[,r]
+    }
+    if(k0<K) {
+      starting_par[(k0+1):K,r] <- runif(K-k0,min=lb[r],max=ub[r])
+    }
+  }
+  if(is.null(starting_gamma)) {
+    k0 <- 0
+  } else {
+    k0 <- length(starting_gamma)
+    starting_par[1:k0,q+1] <- starting_gamma
+  }
+  if(k0<K) {
+    starting_par[(k0+1):K,q+1] <- runif(K-k0,min=lb[q+1],max=ub[q+1])
+  }
+
+  ## Perform initial optimisation
+  out <- list()
+  obj_vals <- rep(NA,K)
+  for(k in 1:K) {
+    if(print.level>0) {
+      cat("Initial estimation ",k," of ",K,".\n")
+    }
+    out[[k]] <- nloptr::nloptr(starting_par[k,],estimate_theta_multi_hawkes,opts=args_init_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster,return_objective=TRUE)
+    obj_vals[k] <- out[[k]]$objective
+  }
+  if(print.level>0) {
+    cat("Found values of the objective:\n")
+    print(obj_vals)
+    cat("Corresponding parameters are:\n")
+    for(k in 1:K) {
+      print(out[[k]]$solution)
+    }
+  }
+
+  ## Find minimum
+  k0 <- min(which(obj_vals==min(obj_vals)))
+
+  ## Run refining optimisation from optimal value
+  if(print.level>0) {
+    cat("Refinement step\n")
+  }
+  refined_out <- nloptr::nloptr(out[[k0]]$solution,estimate_theta_multi_hawkes,opts=args_refi_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster,return_objective=TRUE)
+
+  ## Run last estimate_hawkes to obtain estimates for alpha and C.
+  if(print.level>0) {
+    cat("Run estimate_hawkes on optimal parameter\n")
+  }
+  eh_out <- estimate_theta_multi_hawkes(theta=refined_out$solution,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+
+  return(eh_out)
+}
+
+#' Use cross-validation to find the tuning parameter for penalizing `C`
+#'
+#' `cvMultiHawkes` performs cross validation to find the tuning parameter to be
+#' used for the estimation in [MultiHawkes_robust()].
+#'
+#' In order to perform cross-validation, the data is split in time in a training
+#' data-set and a testing data-set. The time length of the training data-set is
+#' `tf`*`T`, where `T` is the length of the observation period. The fitting
+#' method is [MultiHawkes_robust()]. In order to evaluate the performance of a
+#' given tuning parameter, the least squares loss is computed on the remaining
+#' data, the testing data-set. The method to search for the optimal tuning
+#' parameter is Golden-Section search with lower bound 0 and upper bound
+#' provided in `omega_start`. While [MultiHawkes_robust()] is called on the
+#' entire process, the least squares losses are computed for each vertex
+#' separately. Thus, also the optimisation of the tuning parameter is performed
+#' separately.
+#'
+#' The Golden-Section search is executed `M` times (regardless of convergence of
+#' the algorithm). Finally, the midpoint of the resulting interval is evaluated.
+#' The return value is the choice of the tuning parameter for each vertex that
+#' yields the lowest individual loss.
+#'
+#' This routine is also suitable for cross-validation of a single realisation
+#' Hawkes process whenn `multi_hawkes` and `multi_covariates` contain only one
+#' element.
+#'
+#' @inheritParams MultiHawkes_robust
+#' @param multi_covariates A list of the same format as in
+#'   [MultiHawkes_robust()]. However, it is required that the `times` vector in
+#'   each entry is the same.
+#' @param omega_start A vector (its length must equal the number of vertices)
+#'   that contains the starting values of the search. It should contain values
+#'   that are too large (see also below for details)
+#' @param nos The number of starting points to be used in each call of
+#'   [MultiHawkes_robust()], it defaults to 5.
+#' @param tf The fraction of the data (in time) that is used for training,
+#'   defaults to 0.8.
+#' @param M The number of steps to be used in the Golden-Section search,
+#'   defaults to 5
+#'
+#' @returns A list containing the following three elements:
+#'   *  `omega`: The optimal choice of the tuning parameter among all evaluated
+#'               choices. This can be passed to, e.g, to [MultiHawkes_robust()]
+#'               or [NetHawkes_robust()].
+#'   * `computed_omega`: A matrix with 2M+1 rows. Each row contains a set of
+#'                       tuning parameters that was evaluated.
+#'   * `LSvals`: A matrix with 2M+1 rows. Each row contains the individual
+#'              (per vertex) least squares losses of the corresponding tuning
+#'              parameters provided in entry `computed_omega`.
+#'
+#' @export
+cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,tf=0.8,M=5,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
+  ## Read information
+  K <- length(multi_Hawkes)
+  T <- max(multi_covariates[[1]]$times)
+  p <- dim(multi_covariates[[1]]$cov[[1]])[1]
+  phi <- (1+sqrt(5))/2
+
+  ## Compute training time
+  training_time <- max(multi_covariates[[1]]$times[multi_covariates[[1]]$times<tf*T])
+
+  ## Split data in training and test data
+  training_hawkes <- list()
+  training_covariates <- list()
+  test_hawkes <- list()
+  test_covariates <- list()
+
+  for(k in 1:K) {
+    ## Find training and test indices in edge list
+    trai_ind <- which(multi_Hawkes[[k]]$EL[,4]<=training_time)
+    test_ind <- which(multi_Hawkes[[k]]$EL[,4]> training_time)
+    trai_EL <- multi_Hawkes[[k]]$EL[trai_ind,]
+    test_EL <- multi_Hawkes[[k]]$EL[test_ind,]
+    test_EL[,4] <- test_EL[,4]-training_time
+
+    ## Save Hawkes training and test Data
+    training_hawkes[[k]] <- list(EL=trai_EL[order(trai_EL[,4]),])
+    test_hawkes[[k]] <- list(EL=test_EL[order(test_EL[,4]),])
+
+    ## Get training and test time indices in covariates
+    trai_cov_ind <- which(multi_covariates[[k]]$times<=training_time)
+    test_cov_ind <- which(multi_covariates[[k]]$times >training_time)
+
+    ## Write new time vectors
+    training_covariates[[k]] <- list(times=multi_covariates[[k]]$times[trai_cov_ind],cov=list())
+    test_covariates[[k]] <- list(times=multi_covariates[[k]]$times[test_cov_ind]-training_time,cov=list())
+
+    ## Copy covariates to respective data-set
+    last_training_index <- max(trai_cov_ind)
+    for(i in 1:last_training_index) {
+      ## Add to training set
+      training_covariates[[k]]$cov[[i]] <- multi_covariates[[k]]$cov[[i]]
+    }
+    for(i in (last_training_index+1):length(multi_covariates[[k]]$cov)) {
+      ## Add to test set
+      test_covariates[[k]]$cov[[i-last_training_index]] <- multi_covariates[[k]]$cov[[i]]
+    }
+  }
+
+  ## Prepare result matrices
+  computed_omega <- matrix(NA,nrow=2*M+1,ncol=p)
+  LSvals <- matrix(0,nrow=2*M+1,ncol=p)
+  omega_ub <- omega_start
+  omega_lb <- rep(0,p)
+
+  ## Perform Golden-Section search
+  for(m in 1:M) {
+    cat("Run ",m," of ",M,".\n")
+    ## Compute interior points
+    omega1 <- omega_ub-(omega_ub-omega_lb)/phi
+    omega2 <- omega_lb+(omega_ub-omega_lb)/phi
+
+    ## Save omegas
+    computed_omega[2*m-1,] <- omega1
+    computed_omega[2*m  ,] <- omega2
+
+    ## Compute estimates
+    est1 <- MultiHawkes_robust(training_covariates,training_hawkes,omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+    est2 <- MultiHawkes_robust(training_covariates,training_hawkes,omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+
+    ## Compute corresponding least squares
+    for(k in 1:K) {
+      LSvals[2*m-1,] <- LSvals[2*m-1,]+compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),test_covariates[[k]],est1$C,est1$alpha,test_hawkes[[k]],link=link)
+      LSvals[2*m  ,] <- LSvals[2*m  ,]+compute_individual_lest_squares_theta(c(est2$beta,est2$gamma),test_covariates[[k]],est2$C,est2$alpha,test_hawkes[[k]],link=link)
+    }
+
+    ## Compute new bounds
+    if(sum(est1$C)==0) {
+      ## Lower choice of omega yields empty network -> Set omega1 as upper bound
+      omega_ub <- omega1
+    } else {
+      ## Existent network in estimation, use Golden-Section update
+      upper_better <- which(LSvals[2*m-1,]> LSvals[2*m,])
+      lower_better <- which(LSvals[2*m-1,]<=LSvals[2*m,])
+      omega_lb[upper_better] <- omega1[upper_better]
+      omega_ub[lower_better] <- omega2[lower_better]
+    }
+  }
+
+  ## Compute Estimate for the mid point of the resulting interval
+  omega_mid <- (omega_lb+omega_ub)/2
+  computed_omega[2*M+1,] <- omega_mid
+  est <- MultiHawkes_robust(training_covariates,training_hawkes,omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+  for(k in 1:K) {
+    LSvals[2*M+1,] <- LSvals[2*M+1,]+compute_individual_lest_squares_theta(c(est$beta,est$gamma),test_covariates[[k]],est$C,est$alpha,test_hawkes[[k]],link=link)
+  }
+
+  ## Find minimum
+  return_omega <- rep(NA,p)
+  for(i in 1:p) {
+    min_ind <- which(LSvals[,i]==min(LSvals[,i]))
+    return_omega[i] <- min(computed_omega[min_ind,i])
+  }
+
+  return(list(omega=return_omega,computed_omega=computed_omega,LSvals=LSvals))
+}
+
 
 
 
@@ -1105,14 +1373,6 @@ estimate_hawkes_theta_container <- function(theta,covariates,hawkes,omega,omega_
 
   return(obj)
 }
-
-
-
-
-
-
-
-
 
 estimate_theta_multi_hawkes <- function(theta,multi_covariates,multi_hawkes,omega,omega_alpha,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL,return_objective=FALSE) {
   p <- dim(multi_covariates[[1]]$cov[[1]])[1]
@@ -1295,180 +1555,4 @@ estimate_theta_multi_hawkes <- function(theta,multi_covariates,multi_hawkes,omeg
     return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
   }
 
-}
-
-#' @export
-MultiHawkes_robust <- function(multi_covariates,multi_hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
-  ## Read information
-  q <- dim(multi_covariates[[1]]$cov[[1]])[2]
-
-  ## Set information for optimisation
-  args_init_opt <- list(algorithm="NLOPT_LN_BOBYQA",xtol_rel=100*tol,print_level=0)
-  args_refi_opt <- list(algorithm="NLOPT_LN_BOBYQA",xtol_rel=tol,print_level=0)
-
-  ## Create starting values
-  starting_par <- matrix(NA,ncol=q+1,nrow=K)
-  for(r in 1:q) {
-    if(is.null(starting_beta)) {
-      k0 <- 0
-    } else {
-      k0 <- dim(starting_beta)[1]
-      starting_par[1:k0,r] <- starting_beta[,r]
-    }
-    if(k0<K) {
-      starting_par[(k0+1):K,r] <- runif(K-k0,min=lb[r],max=ub[r])
-    }
-  }
-  if(is.null(starting_gamma)) {
-    k0 <- 0
-  } else {
-    k0 <- length(starting_gamma)
-    starting_par[1:k0,q+1] <- starting_gamma
-  }
-  if(k0<K) {
-    starting_par[(k0+1):K,q+1] <- runif(K-k0,min=lb[q+1],max=ub[q+1])
-  }
-
-  ## Perform initial optimisation
-  out <- list()
-  obj_vals <- rep(NA,K)
-  for(k in 1:K) {
-    if(print.level>0) {
-      cat("Initial estimation ",k," of ",K,".\n")
-    }
-    out[[k]] <- nloptr::nloptr(starting_par[k,],estimate_theta_multi_hawkes,opts=args_init_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster,return_objective=TRUE)
-    obj_vals[k] <- out[[k]]$objective
-  }
-  if(print.level>0) {
-    cat("Found values of the objective:\n")
-    print(obj_vals)
-    cat("Corresponding parameters are:\n")
-    for(k in 1:K) {
-      print(out[[k]]$solution)
-    }
-  }
-
-  ## Find minimum
-  k0 <- min(which(obj_vals==min(obj_vals)))
-
-  ## Run refining optimisation from optimal value
-  if(print.level>0) {
-    cat("Refinement step\n")
-  }
-  refined_out <- nloptr::nloptr(out[[k0]]$solution,estimate_theta_multi_hawkes,opts=args_refi_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster,return_objective=TRUE)
-
-  ## Run last estimate_hawkes to obtain estimates for alpha and C.
-  if(print.level>0) {
-    cat("Run estimate_hawkes on optimal parameter\n")
-  }
-  eh_out <- estimate_theta_multi_hawkes(theta=refined_out$solution,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
-
-  return(eh_out)
-}
-
-#' @export
-cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,tf=0.8,M=5,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
-  ## Read information
-  K <- length(multi_Hawkes)
-  T <- max(multi_covariates[[1]]$times)
-  p <- dim(multi_covariates[[1]]$cov[[1]])[1]
-  phi <- (1+sqrt(5))/2
-
-  ## Compute training time
-  training_time <- max(multi_covariates[[1]]$times[multi_covariates[[1]]$times<tf*T])
-
-  ## Split data in training and test data
-  training_hawkes <- list()
-  training_covariates <- list()
-  test_hawkes <- list()
-  test_covariates <- list()
-
-  for(k in 1:K) {
-    ## Find training and test indices in edge list
-    trai_ind <- which(multi_Hawkes[[k]]$EL[,4]<=training_time)
-    test_ind <- which(multi_Hawkes[[k]]$EL[,4]> training_time)
-    trai_EL <- multi_Hawkes[[k]]$EL[trai_ind,]
-    test_EL <- multi_Hawkes[[k]]$EL[test_ind,]
-    test_EL[,4] <- test_EL[,4]-training_time
-
-    ## Save Hawkes training and test Data
-    training_hawkes[[k]] <- list(EL=trai_EL[order(trai_EL[,4]),])
-        test_hawkes[[k]] <- list(EL=test_EL[order(test_EL[,4]),])
-
-    ## Get training and test time indices in covariates
-    trai_cov_ind <- which(multi_covariates[[k]]$times<=training_time)
-    test_cov_ind <- which(multi_covariates[[k]]$times >training_time)
-
-    ## Write new time vectors
-    training_covariates[[k]] <- list(times=multi_covariates[[k]]$times[trai_cov_ind],cov=list())
-        test_covariates[[k]] <- list(times=multi_covariates[[k]]$times[test_cov_ind]-training_time,cov=list())
-
-    ## Copy covariates to respective dataset
-    last_training_index <- max(trai_cov_ind)
-    for(i in 1:last_training_index) {
-      ## Add to training set
-      training_covariates[[k]]$cov[[i]] <- multi_covariates[[k]]$cov[[i]]
-    }
-    for(i in (last_training_index+1):length(multi_covariates[[k]]$cov)) {
-      ## Add to test set
-      test_covariates[[k]]$cov[[i-last_training_index]] <- multi_covariates[[k]]$cov[[i]]
-    }
-  }
-
-  ## Prepare result matrices
-  computed_omega <- matrix(NA,nrow=2*M+1,ncol=p)
-  LSvals <- matrix(0,nrow=2*M+1,ncol=p)
-  omega_ub <- omega_start
-  omega_lb <- rep(0,p)
-
-  ## Perform Golden-Section search
-  for(m in 1:M) {
-    cat("Run ",m," of ",M,".\n")
-    ## Compute interior points
-    omega1 <- omega_ub-(omega_ub-omega_lb)/phi
-    omega2 <- omega_lb+(omega_ub-omega_lb)/phi
-
-    ## Save omegas
-    computed_omega[2*m-1,] <- omega1
-    computed_omega[2*m  ,] <- omega2
-
-    ## Compute estimates
-    est1 <- MultiHawkes_robust(training_covariates,training_hawkes,omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
-    est2 <- MultiHawkes_robust(training_covariates,training_hawkes,omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
-
-    ## Compute corresponding least squares
-    for(k in 1:K) {
-      LSvals[2*m-1,] <- LSvals[2*m-1,]+compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),test_covariates[[k]],est1$C,est1$alpha,test_hawkes[[k]],link=link)
-      LSvals[2*m  ,] <- LSvals[2*m  ,]+compute_individual_lest_squares_theta(c(est2$beta,est2$gamma),test_covariates[[k]],est2$C,est2$alpha,test_hawkes[[k]],link=link)
-    }
-
-    ## Compute new bounds
-    if(sum(est1$C)==0) {
-      ## Lower choice of omega yields empty network -> Set omega1 as upper bound
-      omega_ub <- omega1
-    } else {
-      ## Existent network in estimation, use Golden-Section update
-      upper_better <- which(LSvals[2*m-1,]> LSvals[2*m,])
-      lower_better <- which(LSvals[2*m-1,]<=LSvals[2*m,])
-      omega_lb[upper_better] <- omega1[upper_better]
-      omega_ub[lower_better] <- omega2[lower_better]
-    }
-  }
-
-  ## Compute Estimate for the mid point of the resulting interval
-  omega_mid <- (omega_lb+omega_ub)/2
-  computed_omega[2*M+1,] <- omega_mid
-  est <- MultiHawkes_robust(training_covariates,training_hawkes,omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
-  for(k in 1:K) {
-    LSvals[2*M+1,] <- LSvals[2*M+1,]+compute_individual_lest_squares_theta(c(est$beta,est$gamma),test_covariates[[k]],est$C,est$alpha,test_hawkes[[k]],link=link)
-  }
-
-  ## Find minimum
-  return_omega <- rep(NA,p)
-  for(i in 1:p) {
-    min_ind <- which(LSvals[,i]==min(LSvals[,i]))
-    return_omega[i] <- min(computed_omega[min_ind,i])
-  }
-
-  return(list(omega=return_omega,computed_omega=computed_omega,LSvals=LSvals))
 }
