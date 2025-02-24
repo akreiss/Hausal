@@ -45,9 +45,11 @@ respectively. The last entry provides a lower (resp. upper) bound on gamma.}
 
 \item{K}{Number of starting values to use}
 
-\item{starting_beta}{Matrix, each row of which corresponds to a starting value for beta to be used}
+\item{starting_beta}{Matrix, each row of which corresponds to a starting
+value for beta to be used}
 
-\item{starting_gamma}{Vector, each entry of which corresponds to a starting value for gamma to be used}
+\item{starting_gamma}{Vector, each entry of which corresponds to a starting
+value for gamma to be used}
 
 \item{C.ind.pen}{Individual weights for the LASSO estimation of C, which are
 passed to glmnet as penalty.factor. The weights are internally rescaled. To
@@ -86,7 +88,10 @@ parallel. This requires the packages \code{parallel}, \code{doParallel}, and
 \code{foreach}.}
 }
 \value{
-The retuned value is a list of the same structure as for \code{\link[=NetHawkes]{NetHawkes()}} but with an additional element \code{nloptr} that contains the complete output of the refinement call from \code{nloptr}. This allows, e.g., to check for convergence of the optimization.
+The retuned value is a list of the same structure as for \code{\link[=NetHawkes]{NetHawkes()}}
+but with an additional element \code{nloptr} that contains the complete output
+of the refinement call from \code{nloptr}. This allows, e.g., to check for
+convergence of the optimization.
 }
 \description{
 \code{\link[=NetHawkes_robust]{NetHawkes_robust()}} works similarly as \code{\link[=NetHawkes]{NetHawkes()}} but it uses a
@@ -105,5 +110,6 @@ runds of \code{nloptr} are computed with tolerance level given by 1000 times \co
 The optimal value is then refined by another run as before initialized with the
 minimzer and tolerance level \code{tol}.
 
-All descrbibed changes affect the first stage estimator only. The later stages remain the same as in \code{\link[=NetHawkes]{NetHawkes()}}
+All descrbibed changes affect the first stage estimator only. The later
+stages remain the same as in \code{\link[=NetHawkes]{NetHawkes()}}
 }

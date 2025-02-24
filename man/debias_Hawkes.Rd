@@ -45,6 +45,7 @@ containing the first q+1 rows of the approximation of the inverse of Sigma
 via node-wise LASSO.
 \item \code{beta_debiased}: De-biased estimate for beta.
 \item \code{gamma_debiased}: De-biased estimate for gamma.
+\item \code{tuning_parameter}: The value that is used for all sigma_j
 }
 }
 \description{

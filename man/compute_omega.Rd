@@ -15,7 +15,8 @@ output of \code{\link[=simulate_hawkes]{simulate_hawkes()}}.}
 
 \item{T}{The end of the observation period}
 
-\item{alpha3, gamma_bar, mu}{Additional parameters that are required for the computation, cf. Details.}
+\item{alpha3, gamma_bar, mu}{Additional parameters that are required for the
+computation, cf. Details.}
 }
 \value{
 \code{compute_omega} returns a vector of length \code{p} that contains the
@@ -27,5 +28,9 @@ estimate_hawkes() as \code{omega}.
 theoretic results provided in our paper.
 }
 \details{
-This function computes the tuning parameter as suggested through Lemma 3.5 in our paper. However, we do not use N_0 as in the paper but compute the stochastic integral from the proof. \code{gamma_bar} is the value for gamma that will be used for this. The remaining parameterst have the same meaning as in Lemma 3.5.
+This function computes the tuning parameter as suggested through Lemma 3.5 in
+our paper. However, we do not use N_0 as in the paper but compute the
+stochastic integral from the proof. \code{gamma_bar} is the value for gamma that
+will be used for this. The remaining parameterst have the same meaning as in
+Lemma 3.5.
 }
