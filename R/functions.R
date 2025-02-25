@@ -94,7 +94,7 @@ simulate_hawkes <- function(covariates,beta0,gamma,alpha,C,T,link=exp,print.leve
     cat("Order Proposed events according to time.\n")
   }
   ord <- order(event_list[,4])
-  event_list <- event_list[ord,]
+  event_list <- event_list[ord,,drop=FALSE]
 
   #### Step 4: Compute intensities
   intint <- .Call("compute_intensity_integrals",event_list,as.double(gamma),covariates$times,baseline,as.double(C))
