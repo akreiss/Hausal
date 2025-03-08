@@ -716,8 +716,18 @@ NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,startin
     if(all(lb<=starting_par[k,]) & all(starting_par[k,]<=ub)) {
       intial_parameter_values <- starting_par[k,]
     } else {
-      warning("In the initial step starting values outside the limits were produced, replace by average")
+      print("In the initial step starting values outside the limits were produced, replace by average")
+      print("Lower bound:")
+      print(lb)
+      print("Upper bound:")
+      print(ub)
+      print("Actual value")
       print(starting_par[k,])
+      print("Lower bound compare")
+      print(lb<=starting_par[k,])
+      print("Upper bound compare")
+      print(starting_par[k,]<=ub)
+
       intial_parameter_values <- (lb+ub)/2
     }
     out[[k]] <- nloptr::nloptr(intial_parameter_values,estimate_hawkes_theta_container,opts=args_init_opt,ub=ub,lb=lb,covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
@@ -734,8 +744,19 @@ NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,startin
   if(all(lb<=out[[k0]]$solution) & all(out[[k0]]$solution<=ub)) {
     intial_parameter_values_refinement <- out[[k0]]$solution
   } else {
-    warning("In the refinement step starting values outside the limits were produced, replace by average")
+    print("In the refinement step starting values outside the limits were produced, replace by average")
+
+    print("Lower bound:")
+    print(lb)
+    print("Upper bound:")
+    print(ub)
+    print("Actual value")
     print(out[[k0]]$solution)
+    print("Lower bound compare")
+    print(lb<=out[[k0]]$solution)
+    print("Upper bound compare")
+    print(out[[k0]]$solution<=ub)
+
     intial_parameter_values_refinement <- (lb+ub)/2
   }
   refined_out <- nloptr::nloptr(intial_parameter_values_refinement,estimate_hawkes_theta_container,opts=args_refi_opt,ub=ub,lb=lb,covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
