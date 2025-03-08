@@ -716,18 +716,7 @@ NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,startin
     if(all(lb<=starting_par[k,]) & all(starting_par[k,]<=ub)) {
       intial_parameter_values <- starting_par[k,]
     } else {
-      print("In the initial step starting values outside the limits were produced, replace by average")
-      print("Lower bound:")
-      print(lb)
-      print("Upper bound:")
-      print(ub)
-      print("Actual value")
-      print(starting_par[k,])
-      print("Lower bound compare")
-      print(lb<=starting_par[k,])
-      print("Upper bound compare")
-      print(starting_par[k,]<=ub)
-
+      warning("In the initial step starting values outside the limits were produced, replace by average: This should not happen, contact the maintainer of this package")
       intial_parameter_values <- (lb+ub)/2
     }
     out[[k]] <- nloptr::nloptr(intial_parameter_values,estimate_hawkes_theta_container,opts=args_init_opt,ub=ub,lb=lb,covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
@@ -741,10 +730,24 @@ NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,startin
   if(print.level>0) {
     cat("Refinement step\n")
   }
+
+  ## Check if computed value lies in the [lb,ub] region
   if(all(lb<=out[[k0]]$solution) & all(out[[k0]]$solution<=ub)) {
+    ## It does
     intial_parameter_values_refinement <- out[[k0]]$solution
   } else {
-    print("In the refinement step starting values outside the limits were produced, replace by average")
+    ## It does not, for some reason this can happen, replace the violating values
+    intial_parameter_values_refinement <- out[[k0]]$solution
+    if(!all(lb<=out[[k0]]$solution)) {
+      lower_bound_violators <- which(lb>out[[k0]]$solution)
+      intial_parameter_values_refinement[lower_bound_violators] <- lb[lower_bound_violators]+(ub[lower_bound_violators]-lb[lower_bound_violators])/100
+    }
+    if(!all(out[[k0]]$solution<=ub)) {
+      upper_bound_violators <- which(ub<out[[k0]]$solution)
+      intial_parameter_values_refinement[upper_bound_violators] <- ub[upper_bound_violators]-(ub[upper_bound_violators]-lb[upper_bound_violators])/100
+    }
+
+    print("In the refinement step starting values outside the limits were produced, replace by bound")
 
     print("Lower bound:")
     print(lb)
@@ -756,8 +759,8 @@ NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,startin
     print(lb<=out[[k0]]$solution)
     print("Upper bound compare")
     print(out[[k0]]$solution<=ub)
-
-    intial_parameter_values_refinement <- (lb+ub)/2
+    print("Value to use")
+    print(intial_parameter_values_refinement)
   }
   refined_out <- nloptr::nloptr(intial_parameter_values_refinement,estimate_hawkes_theta_container,opts=args_refi_opt,ub=ub,lb=lb,covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
 
