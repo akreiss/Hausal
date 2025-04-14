@@ -417,6 +417,15 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=
 #' @inheritParams estimate_hawkes
 #' @param est_hawkes An estimated Hawkes Causal Model, the estimate has to be
 #'   formatted as the output of [estimate_hawkes()].
+#' @param debias_thresh Passed to glmnet(), the default value is `1e-14`,
+#'   glmnet() suggests `1e-07`. Changing this value can speed up the
+#'   computations.
+#' @param debias_maxit Passed to glmnet(), the default value is `1e+08`,
+#'   glmnet() suggests `1e+05`. Changing this value can speed up the
+#'   computations.
+#' @param debias_exact If `TRUE`, the default, the node-wise lasso is computed
+#'   exactly by coef() from the glmnet package. If `FALSE`, an approximation is
+#'   used, which can speed-up computations.
 #'
 #' @returns `debias_hawkes` returns a list with the following elements:
 #'  * `grad`: A vector containing the derivative of the criterion function.
@@ -430,7 +439,7 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=
 #'  * `tuning_parameter`: The value that is used for all sigma_j
 #'
 #' @export
-debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matrix=NULL) {
+debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matrix=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
   p <- length(est_hawkes$alpha)
   q <- length(est_hawkes$beta)
   L <- length(covariates$times)
@@ -564,8 +573,8 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
 
     weight_scaling <- nvars/sum(1/node_lasso_Msd)
 
-    node_wise_lasso <- glmnet::glmnet(t(t(M)/node_lasso_Msd),Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,penalty.factor=weight_scaling/node_lasso_Msd,thresh=1e-14,maxit=100000000)
-    vec <- node_lasso_Zsd*coef(node_wise_lasso,s=pen_weight/(node_lasso_Zsd*m*weight_scaling),exact=TRUE,x=t(t(M)/node_lasso_Msd),y=Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,penalty.factor=weight_scaling/node_lasso_Msd)[-1]/node_lasso_Msd
+    node_wise_lasso <- glmnet::glmnet(t(t(M)/node_lasso_Msd),Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,penalty.factor=weight_scaling/node_lasso_Msd,thresh=debias_thresh,maxit=debias_maxit)
+    vec <- node_lasso_Zsd*coef(node_wise_lasso,s=pen_weight/(node_lasso_Zsd*m*weight_scaling),exact=debias_exact,x=t(t(M)/node_lasso_Msd),y=Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,penalty.factor=weight_scaling/node_lasso_Msd)[-1]/node_lasso_Msd
 
     tau <- as.numeric((Sigma%*%Sigma)[j,j]-matrix((Sigma%*%Sigma)[j,-j],nrow=1)%*%vec)
     if(tau==0) {
@@ -593,6 +602,7 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
 #' de-biased values of `beta` and `gamma` fixed.
 #'
 #' @inheritParams estimate_hawkes
+#' @inheritParams debias_Hawkes
 #' @param print.level Passed to [estimate_hawkes()]. If positive, in addition,
 #'   information about in which stage the estimation is, is printed. The default
 #'   is 0.
@@ -616,7 +626,7 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
 #'     stage estimator.
 #'
 #' @export
-NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL) {
+NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
   ## Perform first stage estimation
   if(print.level>0) {
     cat("Perform the first stage estimation.\n")
@@ -627,7 +637,7 @@ NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=NULL,p
   if(print.level>0) {
     cat("Debias the first stage estimator.\n")
   }
-  debiased_est <- debias_Hawkes(covariates=covariates,hawkes=hawkes,est_hawkes=est_first_stage,link=link,observation_matrix=observation_matrix_debiasing)
+  debiased_est <- debias_Hawkes(covariates=covariates,hawkes=hawkes,est_hawkes=est_first_stage,link=link,observation_matrix=observation_matrix_debiasing,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
 
   ## Compute Network estimate with debiased estimator
   if(print.level>0) {
@@ -673,7 +683,7 @@ NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=NULL,p
 #'   convergence of the optimization.
 #'
 #' @export
-NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL) {
+NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
   ## Read information
   q <- dim(covariates$cov[[1]])[2]
 
@@ -775,7 +785,7 @@ NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,startin
   if(print.level>0) {
     cat("Debias the first stage estimator.\n")
   }
-  debiased_est <- debias_Hawkes(covariates=covariates,hawkes=hawkes,est_hawkes=eh_out,link=link,observation_matrix=observation_matrix_debiasing)
+  debiased_est <- debias_Hawkes(covariates=covariates,hawkes=hawkes,est_hawkes=eh_out,link=link,observation_matrix=observation_matrix_debiasing,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
 
   ## Compute Network estimate with debiased estimator
   if(print.level>0) {
