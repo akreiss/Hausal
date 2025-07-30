@@ -569,12 +569,15 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
     m <- length(Z)
     node_lasso_Zsd <- sd(Z)*sqrt((m-1)/m)
     node_lasso_Msd <- apply(M,2,sd)*sqrt((m-1)/m)
-    nvars <- dim(Sigma)[2]-1
+#    nvars <- dim(Sigma)[2]-1
 
-    weight_scaling <- nvars/sum(1/node_lasso_Msd)
+#    weight_scaling <- nvars/sum(1/node_lasso_Msd)
 
-    node_wise_lasso <- glmnet::glmnet(t(t(M)/node_lasso_Msd),Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,penalty.factor=weight_scaling/node_lasso_Msd,thresh=debias_thresh,maxit=debias_maxit)
-    vec <- node_lasso_Zsd*coef(node_wise_lasso,s=pen_weight/(node_lasso_Zsd*m*weight_scaling),exact=debias_exact,x=t(t(M)/node_lasso_Msd),y=Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,penalty.factor=weight_scaling/node_lasso_Msd,thresh=debias_thresh,maxit=debias_maxit)[-1]/node_lasso_Msd
+#    node_wise_lasso <- glmnet::glmnet(t(t(M)/node_lasso_Msd),Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,penalty.factor=weight_scaling/node_lasso_Msd,thresh=debias_thresh,maxit=debias_maxit)
+#    vec <- node_lasso_Zsd*coef(node_wise_lasso,s=pen_weight/(node_lasso_Zsd*m*weight_scaling),exact=debias_exact,x=t(t(M)/node_lasso_Msd),y=Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,penalty.factor=weight_scaling/node_lasso_Msd,thresh=debias_thresh,maxit=debias_maxit)[-1]/node_lasso_Msd
+
+    node_wise_lasso <- glmnet::glmnet(t(t(M)/node_lasso_Msd),Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,thresh=debias_thresh,maxit=debias_maxit)
+    vec <- node_lasso_Zsd*coef(node_wise_lasso,s=pen_weight/(node_lasso_Zsd*m),exact=debias_exact,x=t(t(M)/node_lasso_Msd),y=Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,thresh=debias_thresh,maxit=debias_maxit)[-1]/node_lasso_Msd
 
     tau <- as.numeric((Sigma%*%Sigma)[j,j]-matrix((Sigma%*%Sigma)[j,-j],nrow=1)%*%vec)
     if(tau==0) {
