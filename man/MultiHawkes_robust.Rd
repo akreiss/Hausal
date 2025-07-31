@@ -32,52 +32,6 @@ another realisation of the Hawkes process.}
 \item{multi_hawkes}{A list each entry of which contains a Hawkes process in
 the same format as for, e.g, \code{\link[=NetHawkes_robust]{NetHawkes_robust()}}. Each entry of
 \code{multi_hawkes} corresponds to one realisation of the Hawkes process.}
-
-\item{omega}{Vector of length p (number of vertices), containing non-negative
-tuning parameter for the LASSO penalty for the corresponding row of the
-adjacency matrix.}
-
-\item{omega_alpha}{A non-negative number, containing the tuning parameter for
-the LASSO penalty with respect to the individuals intensities a.}
-
-\item{lb, ub}{Vectors of length q+1, q equals the dimension of covariates. The
-first q entries of \code{lb} and \code{ub} provide lower and upper bounds on beta,
-respectively. The last entry provides a lower (resp. upper) bound on gamma.}
-
-\item{K}{Number of starting values to use}
-
-\item{starting_beta}{Matrix, each row of which corresponds to a starting
-value for beta to be used}
-
-\item{starting_gamma}{Vector, each entry of which corresponds to a starting
-value for gamma to be used}
-
-\item{C.ind.pen}{Individual weights for the LASSO estimation of C, which are
-passed to glmnet as penalty.factor. The weights are internally rescaled. To
-achieve the criterion function from the paper, set it equal to \code{NULL} (the
-default), then, all vertices receive the same weight.}
-
-\item{print.level}{Passed to \code{\link[=estimate_hawkes]{estimate_hawkes()}}. If positive, in addition,
-information about in which stage the estimation is, is printed. The default
-is 0.}
-
-\item{max_iteration}{Maximal number of iterations after which the iteration
-is stopped. Default is 100.}
-
-\item{tol}{When the parameters have changed after one iteration less than the
-value provided in \code{tol}, the iteration is stopped and the current value is
-returned as the result. The default is 0.00001.}
-
-\item{link}{A function that can be applied to vectors returning a
-non-negative vector of the same length, it will be applied to linear
-transformation of the covariates with \code{beta0} to obtain the baseline
-intensity. The defualt choice is  \code{exp}.}
-
-\item{cluster}{If \code{NULL} (the default) serial computations are executed. If a
-cluster as returned by \code{makeCluster} is provided (after calling
-\code{registerDoParallel(cluster)}), the estimation of C is executed in
-parallel. This requires the packages \code{parallel}, \code{doParallel}, and
-\code{foreach}.}
 }
 \value{
 \code{MultiHawkes_robust} returns a list containing the estimates for the

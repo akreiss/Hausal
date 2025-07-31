@@ -597,96 +597,71 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   return(list(grad=grad,Sigma=Sigma,Theta=Theta,beta_debiased=theta_debiased[1:q],gamma_debiased=theta_debiased[q+1],tuning_parameter=pen_weight))
 }
 
-#' Computes a Complete Estimator with All Stages
+
+#' Do not use this function anymore
 #'
-#' `NetHawkes` combines the functions `estimate_hawkes` and `debias_Hawkes` in a
-#' two-step procedure: Estimate all parameters in the first stage, de-bias
-#' `beta` and `gamma`, and fit, in a second stage, `C` and `alpha` keeping the
-#' de-biased values of `beta` and `gamma` fixed.
-#'
-#' @inheritParams estimate_hawkes
-#' @inheritParams debias_Hawkes
-#' @param print.level Passed to [estimate_hawkes()]. If positive, in addition,
-#'   information about in which stage the estimation is, is printed. The default
-#'   is 0.
-#' @param observation_matrix_network,observation_matrix_debiasing Similarly as
-#'   in [estimate_hawkes()] these matrices are automatically computed when
-#'   `NULL` is provided here (the default). Since the matrix is the same in
-#'   repeated calls, it can lead to a speed up to compute the matrices once
-#'   using [create_observation_matrix()]. The `observation_matrix_network` is of
-#'   dimension `p` and the `observation_matrix_debiasing` is of dimension
-#'   `1+q+p+p^2-1`. Here `p` denotes the number of vertices and `q` the
-#'   dimension of the covariates.
-#'
-#' @return `NetHawkes` returns a list containing the elements:
-#'   * `first_stage`: The estimator from the first stage as returned by
-#'     [estimate_hawkes()]. It is computed using no initial values and
-#'     estimating all model parameters.
-#'   * `second_stage`: The estimator from the second stage as returned by
-#'     [estimate_hawkes()]. It is computed fixing the values of `beta` and
-#'     `gamma` to the de-biased estimators, and updating only `C` and `alpha`.
-#'   * `debiasing`: The output of [debias_Hawkes()] from de-biasing the first
-#'     stage estimator.
+#' Please use [NetHawkes()] instead.
 #'
 #' @export
-NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
-  ## Perform first stage estimation
-  if(print.level>0) {
-    cat("Perform the first stage estimation.\n")
-  }
-  est_first_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,C.ind.pen=C.ind.pen,fit_theta=TRUE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=NULL,gamma_init=NULL,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
-
-  ## Debiasing
-  if(print.level>0) {
-    cat("Debias the first stage estimator.\n")
-  }
-  debiased_est <- debias_Hawkes(covariates=covariates,hawkes=hawkes,est_hawkes=est_first_stage,link=link,observation_matrix=observation_matrix_debiasing,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
-
-  ## Compute Network estimate with debiased estimator
-  if(print.level>0) {
-    cat("Compute second stage estimator.\n")
-  }
-  est_second_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=lb,ub=ub,C.ind.pen=C.ind.pen,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=debiased_est$beta_debiased,gamma_init=debiased_est$gamma_debiased,alpha_init=est_first_stage$alpha,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
-
-  return(list(first_stage=est_first_stage,second_stage=est_second_stage,debiasing=debiased_est))
+NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
+  stop("Please use NetHawkes instead!")
 }
 
 
-
-#' Compute a Complete Estimator Using Multiple Starting Points
+#'Computes a Complete Estimator with All Stages
 #'
-#' [NetHawkes_robust()] works similarly as [NetHawkes()] but it uses a
-#' different optimization strategy. See Details for a precise description
-#' of the differences.
+#'`NetHawkes` combines the functions [estimate_hawkes()] and [debias_Hawkes()]
+#'in a three-step procedure: Estimate all parameters in the first stage, de-bias
+#'`beta` and `gamma` in the second stage, and fit, in a third stage, `C` and
+#'`alpha` keeping the de-biased values of `beta` and `gamma` fixed.
 #'
-#' [NetHawkes_robust()] starts the optimization from `K` random starting
-#' values for beta and gamma. If the user supplies some starting values in
-#' `starting_beta` and `starting_gamma`, these will be extend by random values
-#' selected uniformly between the supplied boundaries in `lb` and `ub`. Then,
-#' the `nloptr` is used to optimize with respect to (beta,gamma), while for each
-#' value of (beta,gamma), [estimate_hawkes()] will be run for fixed (beta,gamma)
-#' to find the optimal value. Then, we take the minimum of all `K` results. These
-#' runds of `nloptr` are computed with tolerance level given by 1000 times `tol`.
-#' The optimal value is then refined by another run as before initialized with the
-#' minimzer and tolerance level `tol`.
+#'`NetHawkes` starts the optimization from `K` random starting values for beta
+#'and gamma. If the user supplies some starting values in `starting_beta` and
+#'`starting_gamma`, these will be extend by random values selected uniformly
+#'between the supplied boundaries in `lb` and `ub`. Then, the `nloptr` package
+#'is used to optimize with respect to (beta,gamma), while for each value of
+#'(beta,gamma), [estimate_hawkes()] will be run for fixed `(beta,gamma)` to find
+#'the optimal value. Then, we take the minimum of all `K` results. These runs of
+#'`nloptr` are computed with tolerance level given by 100 times `tol`. The
+#'optimal value is then refined by another run as before initialized with the
+#'minimzer and tolerance level `tol`.
 #'
-#' All descrbibed changes affect the first stage estimator only. The later
-#' stages remain the same as in [NetHawkes()]
+#'The above concerns the first stage estimation only. The second and third stage
+#'are single calls to [debias_Hawkes()] and [estimate_hawkes()], respectively.
 #'
-#' @inheritParams NetHawkes
-#' @param K Number of starting values to use
-#' @param starting_beta Matrix, each row of which corresponds to a starting
-#'   value for beta to be used
-#' @param starting_gamma Vector, each entry of which corresponds to a starting
-#'   value for gamma to be used
+#'@inheritParams estimate_hawkes
+#'@inheritParams debias_Hawkes
+#'@param print.level Passed to [estimate_hawkes()]. If positive, in addition,
+#'  information about in which stage the estimation is, is printed. The default
+#'  is 0.
+#'@param K Number of starting values to use
+#'@param starting_beta Matrix, each row of which corresponds to a starting value
+#'  for beta to be used
+#'@param starting_gamma Vector, each entry of which corresponds to a starting
+#'  value for gamma to be used
+#'@param observation_matrix_network,observation_matrix_debiasing Similarly as in
+#'  [estimate_hawkes()] these matrices are automatically computed when `NULL` is
+#'  provided here (the default). Since the matrix is the same in repeated calls,
+#'  it can lead to a speed up to compute the matrices once using
+#'  [create_observation_matrix()]. The `observation_matrix_network` is of
+#'  dimension `p` and the `observation_matrix_debiasing` is of dimension
+#'  `1+q+p+p^2-1`. Here `p` denotes the number of vertices and `q` the dimension
+#'  of the covariates.
 #'
-#' @return The retuned value is a list of the same structure as for [NetHawkes()]
-#'   but with an additional element `nloptr` that contains the complete output
-#'   of the refinement call from `nloptr`. This allows, e.g., to check for
-#'   convergence of the optimization.
+#'@return `NetHawkes` returns a list containing the elements:
+#'   * `first_stage`: The estimator from the first stage as returned by
+#'   [estimate_hawkes()]. It is computed using no initial values and estimating
+#'   all model parameters.
+#'   * `second_stage`: The estimator from the second stage as returned by
+#'  [estimate_hawkes()]. It is computed fixing the values of `beta` and `gamma`
+#'  to the de-biased estimators, and updating only `C` and `alpha`.
+#'   * `debiasing`: The output of [debias_Hawkes()] from de-biasing the first
+#'   stage estimator.
+#'   * `nloptr`: The complete output of the refinement call from `nloptr`. This
+#'   allows, e.g., to check for convergence of the optimization.
 #'
-#' @export
-NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
+#'@export
+NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
   ## Read information
   q <- dim(covariates$cov[[1]])[2]
 
@@ -801,21 +776,16 @@ NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,startin
 
 #' Compute a Complete Estimator Using Grid Search
 #'
-#' [NetHawkes_robust()] works similarly as [NetHawkes()] but it uses a different
-#' optimization strategy. See Details for a precise description of the
+#' `NetHawkes_gridsearch` works similarly as [NetHawkes()] but it uses a
+#' different optimization strategy. See Details for a precise description of the
 #' differences.
 #'
-#' [NetHawkes_robust()] uses a grid search (grid of mesh `delta`) to determine
-#' the starting value for the optimisation. Then, the `nloptr` is used to
-#' optimize with respect to (beta,gamma), while for each value of (beta,gamma),
-#' [estimate_hawkes()] will be run for fixed (beta,gamma) to find the optimal
-#' value. Then, we take the minimum of all `K` results. These runds of `nloptr`
-#' are computed with tolerance level given by 1000 times `tol`. The optimal
-#' value is then refined by another run as before initialized with the minimzer
-#' and tolerance level `tol`.
-#'
-#' All descrbibed changes affect the first stage estimator only. The later
-#' stages remain the same as in [NetHawkes()]
+#' `NetHawkes_gridsearch` uses a grid search (grid of mesh `delta`) to determine
+#' the starting value for the optimisation in the first stage: We simply compute
+#' the objective function on a grid of mesh `delta`. The minimizing value will
+#' be used as starting value for a subsequent call of the `nloptr` package to
+#' find the first stage estimator. The second and third stage remain the same as
+#' in [NetHawkes()]
 #'
 #' @inheritParams NetHawkes
 #' @param delta Mesh size of the grid to be used. The default is 0.5.
@@ -1738,5 +1708,4 @@ estimate_theta_multi_hawkes <- function(theta,multi_covariates,multi_hawkes,omeg
   } else {
     return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
   }
-
 }

@@ -2,7 +2,7 @@
 % Please edit documentation in R/functions.R
 \name{NetHawkes_robust}
 \alias{NetHawkes_robust}
-\title{Compute a Complete Estimator Using Multiple Starting Points}
+\title{Do not use this function anymore}
 \usage{
 NetHawkes_robust(
   covariates,
@@ -11,9 +11,6 @@ NetHawkes_robust(
   omega_alpha,
   lb,
   ub,
-  K,
-  starting_beta = NULL,
-  starting_gamma = NULL,
   C.ind.pen = NULL,
   print.level = 0,
   max_iteration = 100,
@@ -27,104 +24,6 @@ NetHawkes_robust(
   debias_exact = TRUE
 )
 }
-\arguments{
-\item{covariates}{Covariate information, its exact format is described in the
-Details of \code{\link[=simulate_hawkes]{simulate_hawkes()}}.}
-
-\item{hawkes}{The observed point process. This is a list with at least the
-element \code{EL}. This element needs to have the same matrix form as in the
-output of \code{\link[=simulate_hawkes]{simulate_hawkes()}}.}
-
-\item{omega}{Vector of length p (number of vertices), containing non-negative
-tuning parameter for the LASSO penalty for the corresponding row of the
-adjacency matrix.}
-
-\item{omega_alpha}{A non-negative number, containing the tuning parameter for
-the LASSO penalty with respect to the individuals intensities a.}
-
-\item{lb, ub}{Vectors of length q+1, q equals the dimension of covariates. The
-first q entries of \code{lb} and \code{ub} provide lower and upper bounds on beta,
-respectively. The last entry provides a lower (resp. upper) bound on gamma.}
-
-\item{K}{Number of starting values to use}
-
-\item{starting_beta}{Matrix, each row of which corresponds to a starting
-value for beta to be used}
-
-\item{starting_gamma}{Vector, each entry of which corresponds to a starting
-value for gamma to be used}
-
-\item{C.ind.pen}{Individual weights for the LASSO estimation of C, which are
-passed to glmnet as penalty.factor. The weights are internally rescaled. To
-achieve the criterion function from the paper, set it equal to \code{NULL} (the
-default), then, all vertices receive the same weight.}
-
-\item{print.level}{Passed to \code{\link[=estimate_hawkes]{estimate_hawkes()}}. If positive, in addition,
-information about in which stage the estimation is, is printed. The default
-is 0.}
-
-\item{max_iteration}{Maximal number of iterations after which the iteration
-is stopped. Default is 100.}
-
-\item{tol}{When the parameters have changed after one iteration less than the
-value provided in \code{tol}, the iteration is stopped and the current value is
-returned as the result. The default is 0.00001.}
-
-\item{link}{A function that can be applied to vectors returning a
-non-negative vector of the same length, it will be applied to linear
-transformation of the covariates with \code{beta0} to obtain the baseline
-intensity. The defualt choice is  \code{exp}.}
-
-\item{observation_matrix_network, observation_matrix_debiasing}{Similarly as
-in \code{\link[=estimate_hawkes]{estimate_hawkes()}} these matrices are automatically computed when
-\code{NULL} is provided here (the default). Since the matrix is the same in
-repeated calls, it can lead to a speed up to compute the matrices once
-using \code{\link[=create_observation_matrix]{create_observation_matrix()}}. The \code{observation_matrix_network} is of
-dimension \code{p} and the \code{observation_matrix_debiasing} is of dimension
-\code{1+q+p+p^2-1}. Here \code{p} denotes the number of vertices and \code{q} the
-dimension of the covariates.}
-
-\item{cluster}{If \code{NULL} (the default) serial computations are executed. If a
-cluster as returned by \code{makeCluster} is provided (after calling
-\code{registerDoParallel(cluster)}), the estimation of C is executed in
-parallel. This requires the packages \code{parallel}, \code{doParallel}, and
-\code{foreach}.}
-
-\item{debias_thresh}{Passed to glmnet(), the default value is \code{1e-14},
-glmnet() suggests \code{1e-07}. Changing this value can speed up the
-computations.}
-
-\item{debias_maxit}{Passed to glmnet(), the default value is \code{1e+08},
-glmnet() suggests \code{1e+05}. Changing this value can speed up the
-computations.}
-
-\item{debias_exact}{If \code{TRUE}, the default, the node-wise lasso is computed
-exactly by coef() from the glmnet package. If \code{FALSE}, an approximation is
-used, which can speed-up computations.}
-}
-\value{
-The retuned value is a list of the same structure as for \code{\link[=NetHawkes]{NetHawkes()}}
-but with an additional element \code{nloptr} that contains the complete output
-of the refinement call from \code{nloptr}. This allows, e.g., to check for
-convergence of the optimization.
-}
 \description{
-\code{\link[=NetHawkes_robust]{NetHawkes_robust()}} works similarly as \code{\link[=NetHawkes]{NetHawkes()}} but it uses a
-different optimization strategy. See Details for a precise description
-of the differences.
-}
-\details{
-\code{\link[=NetHawkes_robust]{NetHawkes_robust()}} starts the optimization from \code{K} random starting
-values for beta and gamma. If the user supplies some starting values in
-\code{starting_beta} and \code{starting_gamma}, these will be extend by random values
-selected uniformly between the supplied boundaries in \code{lb} and \code{ub}. Then,
-the \code{nloptr} is used to optimize with respect to (beta,gamma), while for each
-value of (beta,gamma), \code{\link[=estimate_hawkes]{estimate_hawkes()}} will be run for fixed (beta,gamma)
-to find the optimal value. Then, we take the minimum of all \code{K} results. These
-runds of \code{nloptr} are computed with tolerance level given by 1000 times \code{tol}.
-The optimal value is then refined by another run as before initialized with the
-minimzer and tolerance level \code{tol}.
-
-All descrbibed changes affect the first stage estimator only. The later
-stages remain the same as in \code{\link[=NetHawkes]{NetHawkes()}}
+Please use \code{\link[=NetHawkes]{NetHawkes()}} instead.
 }

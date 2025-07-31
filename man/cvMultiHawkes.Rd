@@ -34,10 +34,6 @@ each entry is the same.}
 that contains the starting values of the search. It should contain values
 that are too large (see also below for details)}
 
-\item{lb, ub}{Vectors of length q+1, q equals the dimension of covariates. The
-first q entries of \code{lb} and \code{ub} provide lower and upper bounds on beta,
-respectively. The last entry provides a lower (resp. upper) bound on gamma.}
-
 \item{nos}{The number of starting points to be used in each call of
 \code{\link[=MultiHawkes_robust]{MultiHawkes_robust()}}, it defaults to 5.}
 
@@ -46,39 +42,6 @@ defaults to 0.8.}
 
 \item{M}{The number of steps to be used in the Golden-Section search,
 defaults to 5}
-
-\item{starting_beta}{Matrix, each row of which corresponds to a starting
-value for beta to be used}
-
-\item{starting_gamma}{Vector, each entry of which corresponds to a starting
-value for gamma to be used}
-
-\item{C.ind.pen}{Individual weights for the LASSO estimation of C, which are
-passed to glmnet as penalty.factor. The weights are internally rescaled. To
-achieve the criterion function from the paper, set it equal to \code{NULL} (the
-default), then, all vertices receive the same weight.}
-
-\item{print.level}{Passed to \code{\link[=estimate_hawkes]{estimate_hawkes()}}. If positive, in addition,
-information about in which stage the estimation is, is printed. The default
-is 0.}
-
-\item{max_iteration}{Maximal number of iterations after which the iteration
-is stopped. Default is 100.}
-
-\item{tol}{When the parameters have changed after one iteration less than the
-value provided in \code{tol}, the iteration is stopped and the current value is
-returned as the result. The default is 0.00001.}
-
-\item{link}{A function that can be applied to vectors returning a
-non-negative vector of the same length, it will be applied to linear
-transformation of the covariates with \code{beta0} to obtain the baseline
-intensity. The defualt choice is  \code{exp}.}
-
-\item{cluster}{If \code{NULL} (the default) serial computations are executed. If a
-cluster as returned by \code{makeCluster} is provided (after calling
-\code{registerDoParallel(cluster)}), the estimation of C is executed in
-parallel. This requires the packages \code{parallel}, \code{doParallel}, and
-\code{foreach}.}
 }
 \value{
 A list containing the following three elements:

@@ -67,14 +67,14 @@ non-negative vector of the same length, it will be applied to linear
 transformation of the covariates with \code{beta0} to obtain the baseline
 intensity. The defualt choice is  \code{exp}.}
 
-\item{observation_matrix_network, observation_matrix_debiasing}{Similarly as
-in \code{\link[=estimate_hawkes]{estimate_hawkes()}} these matrices are automatically computed when
-\code{NULL} is provided here (the default). Since the matrix is the same in
-repeated calls, it can lead to a speed up to compute the matrices once
-using \code{\link[=create_observation_matrix]{create_observation_matrix()}}. The \code{observation_matrix_network} is of
+\item{observation_matrix_network, observation_matrix_debiasing}{Similarly as in
+\code{\link[=estimate_hawkes]{estimate_hawkes()}} these matrices are automatically computed when \code{NULL} is
+provided here (the default). Since the matrix is the same in repeated calls,
+it can lead to a speed up to compute the matrices once using
+\code{\link[=create_observation_matrix]{create_observation_matrix()}}. The \code{observation_matrix_network} is of
 dimension \code{p} and the \code{observation_matrix_debiasing} is of dimension
-\code{1+q+p+p^2-1}. Here \code{p} denotes the number of vertices and \code{q} the
-dimension of the covariates.}
+\code{1+q+p+p^2-1}. Here \code{p} denotes the number of vertices and \code{q} the dimension
+of the covariates.}
 
 \item{cluster}{If \code{NULL} (the default) serial computations are executed. If a
 cluster as returned by \code{makeCluster} is provided (after calling
@@ -101,20 +101,15 @@ complete output of the refinement call from \code{nloptr}. This allows, e.g., to
 check for convergence of the optimization.
 }
 \description{
-\code{\link[=NetHawkes_robust]{NetHawkes_robust()}} works similarly as \code{\link[=NetHawkes]{NetHawkes()}} but it uses a different
-optimization strategy. See Details for a precise description of the
+\code{NetHawkes_gridsearch} works similarly as \code{\link[=NetHawkes]{NetHawkes()}} but it uses a
+different optimization strategy. See Details for a precise description of the
 differences.
 }
 \details{
-\code{\link[=NetHawkes_robust]{NetHawkes_robust()}} uses a grid search (grid of mesh \code{delta}) to determine
-the starting value for the optimisation. Then, the \code{nloptr} is used to
-optimize with respect to (beta,gamma), while for each value of (beta,gamma),
-\code{\link[=estimate_hawkes]{estimate_hawkes()}} will be run for fixed (beta,gamma) to find the optimal
-value. Then, we take the minimum of all \code{K} results. These runds of \code{nloptr}
-are computed with tolerance level given by 1000 times \code{tol}. The optimal
-value is then refined by another run as before initialized with the minimzer
-and tolerance level \code{tol}.
-
-All descrbibed changes affect the first stage estimator only. The later
-stages remain the same as in \code{\link[=NetHawkes]{NetHawkes()}}
+\code{NetHawkes_gridsearch} uses a grid search (grid of mesh \code{delta}) to determine
+the starting value for the optimisation in the first stage: We simply compute
+the objective function on a grid of mesh \code{delta}. The minimizing value will
+be used as starting value for a subsequent call of the \code{nloptr} package to
+find the first stage estimator. The second and third stage remain the same as
+in \code{\link[=NetHawkes]{NetHawkes()}}
 }
