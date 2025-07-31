@@ -21,7 +21,10 @@ NetHawkes_robust(
   link = exp,
   observation_matrix_network = NULL,
   observation_matrix_debiasing = NULL,
-  cluster = NULL
+  cluster = NULL,
+  debias_thresh = 1e-14,
+  debias_maxit = 1e+08,
+  debias_exact = TRUE
 )
 }
 \arguments{
@@ -86,6 +89,18 @@ cluster as returned by \code{makeCluster} is provided (after calling
 \code{registerDoParallel(cluster)}), the estimation of C is executed in
 parallel. This requires the packages \code{parallel}, \code{doParallel}, and
 \code{foreach}.}
+
+\item{debias_thresh}{Passed to glmnet(), the default value is \code{1e-14},
+glmnet() suggests \code{1e-07}. Changing this value can speed up the
+computations.}
+
+\item{debias_maxit}{Passed to glmnet(), the default value is \code{1e+08},
+glmnet() suggests \code{1e+05}. Changing this value can speed up the
+computations.}
+
+\item{debias_exact}{If \code{TRUE}, the default, the node-wise lasso is computed
+exactly by coef() from the glmnet package. If \code{FALSE}, an approximation is
+used, which can speed-up computations.}
 }
 \value{
 The retuned value is a list of the same structure as for \code{\link[=NetHawkes]{NetHawkes()}}

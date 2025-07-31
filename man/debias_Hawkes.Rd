@@ -9,7 +9,10 @@ debias_Hawkes(
   hawkes,
   est_hawkes,
   link = exp,
-  observation_matrix = NULL
+  observation_matrix = NULL,
+  debias_thresh = 1e-14,
+  debias_maxit = 1e+08,
+  debias_exact = TRUE
 )
 }
 \arguments{
@@ -33,6 +36,18 @@ computed within \code{estimate_hawkes}. For a single call of \code{estimate_hawk
 this makes no difference. However, for repeated calls it might be more
 efficient to compute the matrix using \code{\link[=create_observation_matrix]{create_observation_matrix()}} and
 pass it as a parameter here.}
+
+\item{debias_thresh}{Passed to glmnet(), the default value is \code{1e-14},
+glmnet() suggests \code{1e-07}. Changing this value can speed up the
+computations.}
+
+\item{debias_maxit}{Passed to glmnet(), the default value is \code{1e+08},
+glmnet() suggests \code{1e+05}. Changing this value can speed up the
+computations.}
+
+\item{debias_exact}{If \code{TRUE}, the default, the node-wise lasso is computed
+exactly by coef() from the glmnet package. If \code{FALSE}, an approximation is
+used, which can speed-up computations.}
 }
 \value{
 \code{debias_hawkes} returns a list with the following elements:

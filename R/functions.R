@@ -799,6 +799,138 @@ NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,startin
   return(list(first_stage=eh_out,second_stage=est_second_stage,debiasing=debiased_est,nloptr=refined_out))
 }
 
+#' Compute a Complete Estimator Using Grid Search
+#'
+#' [NetHawkes_robust()] works similarly as [NetHawkes()] but it uses a different
+#' optimization strategy. See Details for a precise description of the
+#' differences.
+#'
+#' [NetHawkes_robust()] uses a grid search (grid of mesh `delta`) to determine
+#' the starting value for the optimisation. Then, the `nloptr` is used to
+#' optimize with respect to (beta,gamma), while for each value of (beta,gamma),
+#' [estimate_hawkes()] will be run for fixed (beta,gamma) to find the optimal
+#' value. Then, we take the minimum of all `K` results. These runds of `nloptr`
+#' are computed with tolerance level given by 1000 times `tol`. The optimal
+#' value is then refined by another run as before initialized with the minimzer
+#' and tolerance level `tol`.
+#'
+#' All descrbibed changes affect the first stage estimator only. The later
+#' stages remain the same as in [NetHawkes()]
+#'
+#' @inheritParams NetHawkes
+#' @param delta Mesh size of the grid to be used. The default is 0.5.
+#'
+#' @return The retuned value is a list of the same structure as for
+#'   [NetHawkes()] but with an additional element `nloptr` that contains the
+#'   complete output of the refinement call from `nloptr`. This allows, e.g., to
+#'   check for convergence of the optimization.
+#'
+#' @export
+NetHawkes_gridsearch <- function(covariates,hawkes,omega,omega_alpha,lb,ub,delta=0.5,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
+  ## Read information
+  q <- dim(covariates$cov[[1]])[2]
+  time_horizon <- max(covariates$times)
+
+  ## Set information for optimisation
+  args_refi_opt <- list(algorithm="NLOPT_LN_BOBYQA",xtol_rel=tol,print_level=0)
+
+  ## Create grid
+  grid_list <- mapply(function(l,u) { return(seq(from=l,to=u,by=delta)) },
+                      lb,ub,SIMPLIFY=FALSE)
+  grid <- expand.grid(grid_list)
+  if(print.level>0) {
+    cat("Use ",dim(grid)[1]," many grid evaluation, if that is too much, increase delta.\n")
+  }
+
+  #### Compute objective on grid
+  obj_vals <- rep(NA,nrow(grid))
+  for(j in 1:nrow(grid)) {
+    ## Compute optimal C and alpha
+    opt_theta <- estimate_hawkes(fit_theta=FALSE,beta_init=grid[j,1:q],gamma_init=grid[j,q+1],covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=0,max_iteration=max_iteration,tol=tol,alpha_init=NULL,link=link,observation_matrix=NULL,cluster=NULL)
+
+    ## Compute objective
+    obj <- compute_lest_squares_theta(par=grid[j,],covariates=covariates,C=opt_theta$C,alpha=opt_theta$alpha,hawkes=hawkes,link=link)
+
+    ## Compute penalized version
+    obj_vals[j] <- obj/time_horizon+2*sum(omega*opt_theta$C)+2*omega_alpha*sum(opt_theta$alpha)
+
+    ########### Status Message ###################################################
+    if(j %% 50 == 0) {
+      if(print.level>0) {
+        cat(sprintf("Computed %.2f%% of the grid.\n",j/nrow(grid)*100))
+      }
+    }
+    ##############################################################################
+  }
+
+  ## Find minimum
+  k0 <- min(which(obj_vals==min(obj_vals)))
+  intial_parameter_values_refinement <- as.numeric(grid[k0,])
+
+  ## Check if computed value lies in the [lb,ub] region
+  if(!(all(lb<=intial_parameter_values_refinement) & all(intial_parameter_values_refinement<=ub))) {
+    ## It does not, for some reason this can happen, replace the violating values
+    if(!all(lb<=intial_parameter_values_refinement)) {
+      lower_bound_violators <- which(lb>intial_parameter_values_refinement)
+      intial_parameter_values_refinement[lower_bound_violators] <- lb[lower_bound_violators]+(ub[lower_bound_violators]-lb[lower_bound_violators])/100
+    }
+    if(!all(intial_parameter_values_refinement<=ub)) {
+      upper_bound_violators <- which(ub<intial_parameter_values_refinement)
+      intial_parameter_values_refinement[upper_bound_violators] <- ub[upper_bound_violators]-(ub[upper_bound_violators]-lb[upper_bound_violators])/100
+    }
+
+    print("In the refinement step starting values outside the limits were produced, replace by bound")
+
+    print("Lower bound:")
+    print(lb)
+    print("Upper bound:")
+    print(ub)
+    print("Actual value")
+    print(grid[k0,])
+    print("Lower bound compare")
+    print(lb<=grid[k0,])
+    print("Upper bound compare")
+    print(grid[k0,]<=ub)
+    print("Value to use")
+    print(intial_parameter_values_refinement)
+  }
+
+  ## Print starting value
+  if(print.level>0) {
+    cat("Found the following starting value in the grid search\n")
+    print(intial_parameter_values_refinement)
+  }
+
+  ## Run refining optimisation from optimal value
+  if(print.level>0) {
+    cat("Refinement step\n")
+  }
+  refined_out <- nloptr::nloptr(intial_parameter_values_refinement,estimate_hawkes_theta_container,opts=args_refi_opt,ub=ub,lb=lb,covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
+
+  ## Run last estimate_hawkes to obtain estimates for alpha and C.
+  if(print.level>0) {
+    cat("Run estimate_hawkes on optimal parameter\n")
+  }
+  eh_out <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=NULL,ub=NULL,C.ind.pen=C.ind.pen,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=refined_out$solution[1:q],gamma_init=refined_out$solution[q+1],alpha_init=NULL,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
+
+
+  #### Debiasing
+  if(print.level>0) {
+    cat("Debias the first stage estimator.\n")
+  }
+  debiased_est <- debias_Hawkes(covariates=covariates,hawkes=hawkes,est_hawkes=eh_out,link=link,observation_matrix=observation_matrix_debiasing,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
+
+  ## Compute Network estimate with debiased estimator
+  if(print.level>0) {
+    cat("Compute second stage estimator.\n")
+  }
+  est_second_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=NULL,ub=NULL,C.ind.pen=C.ind.pen,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=debiased_est$beta_debiased,gamma_init=debiased_est$gamma_debiased,alpha_init=eh_out$alpha,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
+
+  return(list(first_stage=eh_out,second_stage=est_second_stage,debiasing=debiased_est,nloptr=refined_out))
+}
+
+
+
 #' Compute Observation Matrix
 #'
 #' The observation matrix of dimension n required to handle the missing
