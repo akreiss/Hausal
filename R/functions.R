@@ -1150,12 +1150,12 @@ compute_omega <- function(hawkes,p,T,alpha3,gamma_bar,mu=log(2)) {
 
 #' Estimate the parameters from a multiple Hawkes process
 #'
-#' `MultiHawkes_robust` estimates the parameters of a Causal Hawkes process as
-#' described in the paper when several realisations of this process are provided.
+#' `MultiHawkes` estimates the parameters of a Causal Hawkes process as
+#' described in the paper when several realizations of this process are provided.
 #'
 #' Suppose that you have several observation from the same Hawkes causal model
-#' as in our paper, that is, the parameters are the same for all realisations but
-#' the covariates might be potentially different. `MultiHawkes_robust` estimates
+#' as in our paper, that is, the parameters are the same for all realization but
+#' the covariates might be potentially different. `MultiHawkes` estimates
 #' this parameter by optimizing the following loss function:
 #'
 #' Sum over k ( Least squares loss for realisation k) + Penalty
@@ -1167,19 +1167,19 @@ compute_omega <- function(hawkes,p,T,alpha3,gamma_bar,mu=log(2)) {
 #' The estimation method is the same as in [NetHawkes_robust()]. De-biasing is
 #' not supported for multi observations.
 #'
-#' @inheritParams NetHawkes_robust
+#' @inheritParams NetHawkes
 #' @param multi_covariates A list each entry of which contains a `covariate` as
-#'   described in, e.g., [NetHawkes_robust()]. Each entry of the list corresponds to
+#'   described in, e.g., [NetHawkes()]. Each entry of the list corresponds to
 #'   another realisation of the Hawkes process.
 #' @param multi_hawkes A list each entry of which contains a Hawkes process in
-#'   the same format as for, e.g, [NetHawkes_robust()]. Each entry of
+#'   the same format as for, e.g, [NetHawkes()]. Each entry of
 #'   `multi_hawkes` corresponds to one realisation of the Hawkes process.
 #'
-#' @returns `MultiHawkes_robust` returns a list containing the estimates for the
+#' @returns `MultiHawkes` returns a list containing the estimates for the
 #'   parameters `C`, `alpha`, `beta`, and `gamma`.
 #'
 #' @export
-MultiHawkes_robust <- function(multi_covariates,multi_hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
+MultiHawkes <- function(multi_covariates,multi_hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
   ## Read information
   q <- dim(multi_covariates[[1]]$cov[[1]])[2]
 
@@ -1250,16 +1250,16 @@ MultiHawkes_robust <- function(multi_covariates,multi_hawkes,omega,omega_alpha,l
 #' Use cross-validation to find the tuning parameter for penalizing `C`
 #'
 #' `cvMultiHawkes` performs cross validation to find the tuning parameter to be
-#' used for the estimation in [MultiHawkes_robust()].
+#' used for the estimation in [MultiHawkes()].
 #'
 #' In order to perform cross-validation, the data is split in time in a training
 #' data-set and a testing data-set. The time length of the training data-set is
 #' `tf`*`T`, where `T` is the length of the observation period. The fitting
-#' method is [MultiHawkes_robust()]. In order to evaluate the performance of a
+#' method is [MultiHawkes()]. In order to evaluate the performance of a
 #' given tuning parameter, the least squares loss is computed on the remaining
 #' data, the testing data-set. The method to search for the optimal tuning
 #' parameter is Golden-Section search with lower bound 0 and upper bound
-#' provided in `omega_start`. While [MultiHawkes_robust()] is called on the
+#' provided in `omega_start`. While [MultiHawkes()] is called on the
 #' entire process, the least squares losses are computed for each vertex
 #' separately. Thus, also the optimisation of the tuning parameter is performed
 #' separately.
@@ -1273,15 +1273,15 @@ MultiHawkes_robust <- function(multi_covariates,multi_hawkes,omega,omega_alpha,l
 #' Hawkes process whenn `multi_hawkes` and `multi_covariates` contain only one
 #' element.
 #'
-#' @inheritParams MultiHawkes_robust
+#' @inheritParams MultiHawkes
 #' @param multi_covariates A list of the same format as in
-#'   [MultiHawkes_robust()]. However, it is required that the `times` vector in
+#'   [MultiHawkes()]. However, it is required that the `times` vector in
 #'   each entry is the same.
 #' @param omega_start A vector (its length must equal the number of vertices)
 #'   that contains the starting values of the search. It should contain values
 #'   that are too large (see also below for details)
 #' @param nos The number of starting points to be used in each call of
-#'   [MultiHawkes_robust()], it defaults to 5.
+#'   [MultiHawkes()], it defaults to 5.
 #' @param tf The fraction of the data (in time) that is used for training,
 #'   defaults to 0.8.
 #' @param M The number of steps to be used in the Golden-Section search,
@@ -1289,7 +1289,7 @@ MultiHawkes_robust <- function(multi_covariates,multi_hawkes,omega,omega_alpha,l
 #'
 #' @returns A list containing the following three elements:
 #'   *  `omega`: The optimal choice of the tuning parameter among all evaluated
-#'               choices. This can be passed to, e.g, to [MultiHawkes_robust()]
+#'               choices. This can be passed to, e.g, to [MultiHawkes()]
 #'               or [NetHawkes_robust()].
 #'   * `computed_omega`: A matrix with 2M+1 rows. Each row contains a set of
 #'                       tuning parameters that was evaluated.
@@ -1523,7 +1523,7 @@ estimate_hawkes_theta_container <- function(theta,covariates,hawkes,omega,omega_
   opt_theta <- estimate_hawkes(fit_theta=FALSE,beta_init=theta[1:q],gamma_init=theta[q+1],covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
 
   ## Compute objective
-  obj <- compute_lest_squares_theta(par=theta,covariates=covariates,C=opt_theta$C,alpha=opt_theta$alpha,hawkes=hawkes,link=link)/T+2*sum(omega*opt_theta$C)
+  obj <- compute_lest_squares_theta(par=theta,covariates=covariates,C=opt_theta$C,alpha=opt_theta$alpha,hawkes=hawkes,link=link)/T+2*sum(omega*opt_theta$C)+2*omega_alpha*sum(alpha)
 
   return(obj)
 }
@@ -1704,7 +1704,7 @@ estimate_theta_multi_hawkes <- function(theta,multi_covariates,multi_hawkes,omeg
   }
 
   if(return_objective) {
-    return(as.numeric((t(alpha)%*%V%*%alpha+sum(diag(C%*%Gamma))+2*sum(alpha*diag(C%*%t(G)))-2*sum(alpha*v)-2*sum(diag(C%*%t(A))))/(p*T)))
+    return(as.numeric((t(alpha)%*%V%*%alpha+sum(diag(C%*%Gamma%*%t(C)))+2*sum(alpha*diag(C%*%t(G)))-2*sum(alpha*v)-2*sum(diag(C%*%t(A))))/(K*T))+2*sum(omega*C)+2*omega_alpha*sum(alpha))
   } else {
     return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
   }

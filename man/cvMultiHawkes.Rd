@@ -27,27 +27,64 @@ cvMultiHawkes(
 }
 \arguments{
 \item{multi_covariates}{A list of the same format as in
-\code{\link[=MultiHawkes_robust]{MultiHawkes_robust()}}. However, it is required that the \code{times} vector in
+\code{\link[=MultiHawkes]{MultiHawkes()}}. However, it is required that the \code{times} vector in
 each entry is the same.}
 
 \item{omega_start}{A vector (its length must equal the number of vertices)
 that contains the starting values of the search. It should contain values
 that are too large (see also below for details)}
 
+\item{lb, ub}{Vectors of length q+1, q equals the dimension of covariates. The
+first q entries of \code{lb} and \code{ub} provide lower and upper bounds on beta,
+respectively. The last entry provides a lower (resp. upper) bound on gamma.}
+
 \item{nos}{The number of starting points to be used in each call of
-\code{\link[=MultiHawkes_robust]{MultiHawkes_robust()}}, it defaults to 5.}
+\code{\link[=MultiHawkes]{MultiHawkes()}}, it defaults to 5.}
 
 \item{tf}{The fraction of the data (in time) that is used for training,
 defaults to 0.8.}
 
 \item{M}{The number of steps to be used in the Golden-Section search,
 defaults to 5}
+
+\item{starting_beta}{Matrix, each row of which corresponds to a starting value
+for beta to be used}
+
+\item{starting_gamma}{Vector, each entry of which corresponds to a starting
+value for gamma to be used}
+
+\item{C.ind.pen}{Individual weights for the LASSO estimation of C, which are
+passed to glmnet as penalty.factor. The weights are internally rescaled. To
+achieve the criterion function from the paper, set it equal to \code{NULL} (the
+default), then, all vertices receive the same weight.}
+
+\item{print.level}{Passed to \code{\link[=estimate_hawkes]{estimate_hawkes()}}. If positive, in addition,
+information about in which stage the estimation is, is printed. The default
+is 0.}
+
+\item{max_iteration}{Maximal number of iterations after which the iteration
+is stopped. Default is 100.}
+
+\item{tol}{When the parameters have changed after one iteration less than the
+value provided in \code{tol}, the iteration is stopped and the current value is
+returned as the result. The default is 0.00001.}
+
+\item{link}{A function that can be applied to vectors returning a
+non-negative vector of the same length, it will be applied to linear
+transformation of the covariates with \code{beta0} to obtain the baseline
+intensity. The defualt choice is  \code{exp}.}
+
+\item{cluster}{If \code{NULL} (the default) serial computations are executed. If a
+cluster as returned by \code{makeCluster} is provided (after calling
+\code{registerDoParallel(cluster)}), the estimation of C is executed in
+parallel. This requires the packages \code{parallel}, \code{doParallel}, and
+\code{foreach}.}
 }
 \value{
 A list containing the following three elements:
 \itemize{
 \item \code{omega}: The optimal choice of the tuning parameter among all evaluated
-choices. This can be passed to, e.g, to \code{\link[=MultiHawkes_robust]{MultiHawkes_robust()}}
+choices. This can be passed to, e.g, to \code{\link[=MultiHawkes]{MultiHawkes()}}
 or \code{\link[=NetHawkes_robust]{NetHawkes_robust()}}.
 \item \code{computed_omega}: A matrix with 2M+1 rows. Each row contains a set of
 tuning parameters that was evaluated.
@@ -58,17 +95,17 @@ parameters provided in entry \code{computed_omega}.
 }
 \description{
 \code{cvMultiHawkes} performs cross validation to find the tuning parameter to be
-used for the estimation in \code{\link[=MultiHawkes_robust]{MultiHawkes_robust()}}.
+used for the estimation in \code{\link[=MultiHawkes]{MultiHawkes()}}.
 }
 \details{
 In order to perform cross-validation, the data is split in time in a training
 data-set and a testing data-set. The time length of the training data-set is
 \code{tf}*\code{T}, where \code{T} is the length of the observation period. The fitting
-method is \code{\link[=MultiHawkes_robust]{MultiHawkes_robust()}}. In order to evaluate the performance of a
+method is \code{\link[=MultiHawkes]{MultiHawkes()}}. In order to evaluate the performance of a
 given tuning parameter, the least squares loss is computed on the remaining
 data, the testing data-set. The method to search for the optimal tuning
 parameter is Golden-Section search with lower bound 0 and upper bound
-provided in \code{omega_start}. While \code{\link[=MultiHawkes_robust]{MultiHawkes_robust()}} is called on the
+provided in \code{omega_start}. While \code{\link[=MultiHawkes]{MultiHawkes()}} is called on the
 entire process, the least squares losses are computed for each vertex
 separately. Thus, also the optimisation of the tuning parameter is performed
 separately.
