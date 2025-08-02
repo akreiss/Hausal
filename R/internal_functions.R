@@ -230,7 +230,7 @@ estimate_hawkes_theta_container <- function(theta,covariates,hawkes,omega,omega_
   opt_theta <- estimate_hawkes(fit_theta=FALSE,beta_init=theta[1:q],gamma_init=theta[q+1],covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
 
   ## Compute objective
-  obj <- compute_lest_squares_theta(par=theta,covariates=covariates,C=opt_theta$C,alpha=opt_theta$alpha,hawkes=hawkes,link=link)/T+2*sum(omega*opt_theta$C)+2*omega_alpha*sum(alpha)
+  obj <- compute_lest_squares_theta(par=theta,covariates=covariates,C=opt_theta$C,alpha=opt_theta$alpha,hawkes=hawkes,link=link)/T+2*sum(omega*opt_theta$C)+2*omega_alpha*sum(opt_theta$alpha)
 
   return(obj)
 }
