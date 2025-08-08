@@ -1504,8 +1504,34 @@ cvHawkes <- function(Hawkes,covariates,omega_start,lb,ub,nos=5,tf=0.8,M=5,starti
 
 #' Compute node-wise covariance permutation test
 #'
+#' Tests for isolated vertices and returns a p-value per vertex. A low p-value
+#' indicates that the corresponding vertex has at least one incoming edge.
+#'
+#' The test is based on a permutation strategy. Specifically, to test for
+#' incomind edges in vertex i, `per` many datasets are simulated using the
+#' provided parameters, but where the i-th row of `C` is replaced by zeros. In
+#' each dataset (including the original dataset), the covariance test statistic
+#' is computed for the LASSO regression that estimates the corresponding row of
+#' the influence matrix `C`. The p-values are computed as the fraction of test
+#' statistics in the simulated data that turn out to be larger than the test
+#' statistics of the corresponding vertex in the observed dataset.
+#'
+#' @inheritParams cvMultiHawkes
+#' @param beta,gamma,alpha,C Parameters to be used in the null simulation step,
+#'                           these can be, e.g., estimates returned by
+#'                           [MultiHawkes()]
+#' @param per Number of permutations in the permuation test, defaults to 100
+#'
+#'
+#' @returns A list containing the following three elements:
+#'   * `pvals`: The computed p-values per vertex
+#'   * `null_test`: A matrix that contains in each of its `per` rows the
+#'                  computed value of the covariance test statistic computed in
+#'                  the corresponding null simulation
+#'   * `cov_test`: The value of the covariance test for the provided dataset
+#'
 #' @export
-node_wise_influence_test <- function(multi_hawkes,multi_covariates,beta,gamma,alpha,C,per,link=exp,observation_matrix=NULL,print.level=0,cluster=NULL) {
+node_wise_influence_test <- function(multi_hawkes,multi_covariates,beta,gamma,alpha,C,per=100,link=exp,observation_matrix=NULL,print.level=0,cluster=NULL) {
   ## Get data
   p <- dim(multi_covariates[[1]]$cov[[1]])[1]
   L <- length(multi_covariates[[1]]$times)
@@ -1513,7 +1539,7 @@ node_wise_influence_test <- function(multi_hawkes,multi_covariates,beta,gamma,al
   K <- length(multi_hawkes)
 
   ## Compute covariance test statistic on observations
-  rd_test <- nodewise_covariance_test(multi_hawkes,multi_covariates,beta,gamma,alpha,estimate_variance=TRUE,link=link,observation_matrix=observation_matrix)
+  rd_test <- nodewise_covariance_test(multi_hawkes,multi_covariates,beta,gamma,alpha,estimate_variance=FALSE,link=link,observation_matrix=observation_matrix)
 
   ## Perform permutation test
   if(is.null(cluster)) {

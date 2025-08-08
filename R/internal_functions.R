@@ -100,7 +100,8 @@ nodewise_covariance_test <- function(multi_hawkes,multi_covariates,beta,gamma,al
 
     ## Compute omega2
     term1 <- -4*R[m,-m]*(U[m]*U[-m]-R[m,-m]/R[m,m]*U[m]^2)/(R[m,m]*abs(U[m]))
-    omega2 <- max((term1-sqrt(term1^2-16*(R[m,-m]^2/R[m,m]^2-1)*(U[-m]-R[m,-m]/R[m,m]*U[m])^2))/(2*R[m,-m]^2/R[m,m]^2-1))
+    term2 <- 16*(R[m,-m]^2/R[m,m]^2-1)*(U[-m]-R[m,-m]/R[m,m]*U[m])^2
+    omega2 <- max((term1-sqrt(term1^2-term2))/(2*(R[m,-m]^2/R[m,m]^2-1)))
 
     ## Estimate variance
     if(estimate_variance) {
