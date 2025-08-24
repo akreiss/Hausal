@@ -1164,7 +1164,7 @@ compute_omega <- function(hawkes,p,T,alpha3,gamma_bar,mu=log(2)) {
 #'
 #' Sum over i( omega[i]*sum(C[i,])) + omega_alpha*sum(alpha).
 #'
-#' The estimation method is the same as in [NetHawkes_robust()]. De-biasing is
+#' The estimation method is the same as in [NetHawkes()]. De-biasing is
 #' not supported for multi observations.
 #'
 #' @inheritParams NetHawkes
@@ -1320,15 +1320,39 @@ cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,
     computed_omega[2*m-1,] <- omega1
     computed_omega[2*m  ,] <- omega2
 
-    ## Perform jacknife estimation
-    for(jn_step in 1:K) {
-      ## Compute estimates on training data
-      est1 <- MultiHawkes(multi_covariates[-jn_step],multi_hawkes[-jn_step],omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
-      est2 <- MultiHawkes(multi_covariates[-jn_step],multi_hawkes[-jn_step],omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+    ## Perform jackknife estimation (in parallel if required)
+    if(is.null(cluster)) {
+      ## Serial Compuation
+      for(jn_step in 1:K) {
+        ## Compute estimates on training data
+        est1 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+        est2 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
 
-      ## Compute corresponding least squares on left-out data
-      LSvals[2*m-1,] <- LSvals[2*m-1,]+compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),multi_covariates[[jn_step]],est1$C,est1$alpha,multi_hawkes[[jn_step]],link=link)
-      LSvals[2*m  ,] <- LSvals[2*m  ,]+compute_individual_lest_squares_theta(c(est2$beta,est2$gamma),multi_covariates[[jn_step]],est2$C,est2$alpha,multi_hawkes[[jn_step]],link=link)
+        ## Compute corresponding least squares on left-out data
+        LSvals[2*m-1,] <- LSvals[2*m-1,]+compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),multi_covariates[[jn_step]],est1$C,est1$alpha,multi_Hawkes[[jn_step]],link=link)
+        LSvals[2*m  ,] <- LSvals[2*m  ,]+compute_individual_lest_squares_theta(c(est2$beta,est2$gamma),multi_covariates[[jn_step]],est2$C,est2$alpha,multi_Hawkes[[jn_step]],link=link)
+      }
+    } else {
+      ## Parallel computation
+      ## Compute estimates on omega1
+      parout1 <- foreach(jn_step=1:K,.combine=rbind) %dopar% {
+        ## Compute estimates on training data
+        est1 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+
+        ## Compute corresponding least squares on left-out data
+        return(compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),multi_covariates[[jn_step]],est1$C,est1$alpha,multi_Hawkes[[jn_step]],link=link))
+      }
+      LSvals[2*m-1,] <- colSums(parout1)
+
+      ## Compute estimates on omega2
+      parout2 <- foreach(jn_step=1:K,.combine=rbind) %dopar% {
+        ## Compute estimates on training data
+        est2 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+
+        ## Compute corresponding least squares on left-out data
+        return(compute_individual_lest_squares_theta(c(est2$beta,est2$gamma),multi_covariates[[jn_step]],est2$C,est2$alpha,multi_Hawkes[[jn_step]],link=link))
+      }
+      LSvals[2*m  ,] <- colSums(parout2)
     }
 
     ## Compute new bounds, use Golden-Section update
@@ -1341,12 +1365,26 @@ cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,
   ## Compute Estimate for the mid point of the resulting interval
   omega_mid <- (omega_lb+omega_ub)/2
   computed_omega[2*M+1,] <- omega_mid
-  for(jn_step in 1:K) {
-    ## Compute estimate on training data
-    est <- MultiHawkes(multi_covariates[-jn_step],multi_hawkes[-jn_step],omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
 
-    ## Compute corresponding least squares on left-out data
-    LSvals[2*M+1,] <- LSvals[2*M+1,]+compute_individual_lest_squares_theta(c(est$beta,est$gamma),multi_covariates[[jn_step]],est$C,est$alpha,multi_hawkes[[jn_step]],link=link)
+  if(is.null(cluster)) {
+    ## Serial computation
+    for(jn_step in 1:K) {
+      ## Compute estimate on training data
+      est <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+
+      ## Compute corresponding least squares on left-out data
+      LSvals[2*M+1,] <- LSvals[2*M+1,]+compute_individual_lest_squares_theta(c(est$beta,est$gamma),multi_covariates[[jn_step]],est$C,est$alpha,multi_Hawkes[[jn_step]],link=link)
+    }
+  } else {
+    ## Parallel computation
+    parout <- foreach(jn_step=1:K,.combine=rbind) %dopar% {
+      ## Compute estimate on training data
+      est <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+
+      ## Compute corresponding least squares on left-out data
+      return(compute_individual_lest_squares_theta(c(est$beta,est$gamma),multi_covariates[[jn_step]],est$C,est$alpha,multi_Hawkes[[jn_step]],link=link))
+    }
+    LSvals[2*M+1,] <- colSums(parout)
   }
 
   ## Find minimum
