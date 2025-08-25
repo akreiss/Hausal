@@ -1311,7 +1311,10 @@ cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,
 
   ## Perform Golden-Section search
   for(m in 1:M) {
-    cat("Run ",m," of ",M,".\n")
+    if(print.level>0) {
+      cat("Run ",m," of ",M,".\n")
+    }
+
     ## Compute interior points
     omega1 <- omega_ub-(omega_ub-omega_lb)/phi
     omega2 <- omega_lb+(omega_ub-omega_lb)/phi
@@ -1336,8 +1339,12 @@ cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,
       ## Parallel computation
       ## Compute estimates on omega1
       parout1 <- foreach(jn_step=1:K,.combine=rbind) %dopar% {
+        if(print.level>1) {
+          cat("Perform step ",jn_step," of ",K,".\n")
+        }
+
         ## Compute estimates on training data
-        est1 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+        est1 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0        ,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
 
         ## Compute corresponding least squares on left-out data
         return(compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),multi_covariates[[jn_step]],est1$C,est1$alpha,multi_Hawkes[[jn_step]],link=link))
@@ -1345,7 +1352,14 @@ cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,
       LSvals[2*m-1,] <- colSums(parout1)
 
       ## Compute estimates on omega2
+      if(print.level>0) {
+        cat("Consider second omega.\n")
+      }
       parout2 <- foreach(jn_step=1:K,.combine=rbind) %dopar% {
+        if(print.level>1) {
+          cat("Perform step ",jn_step," of ",K,".\n")
+        }
+
         ## Compute estimates on training data
         est2 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
 
@@ -1363,6 +1377,9 @@ cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,
   }
 
   ## Compute Estimate for the mid point of the resulting interval
+  if(print.level>0) {
+    cat("Consider intermediate omega.\n")
+  }
   omega_mid <- (omega_lb+omega_ub)/2
   computed_omega[2*M+1,] <- omega_mid
 
@@ -1378,6 +1395,10 @@ cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,
   } else {
     ## Parallel computation
     parout <- foreach(jn_step=1:K,.combine=rbind) %dopar% {
+      if(print.level>1) {
+        cat("Perform step ",jn_step," of ",K,".\n")
+      }
+
       ## Compute estimate on training data
       est <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
 
