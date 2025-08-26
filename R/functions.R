@@ -1236,7 +1236,39 @@ MultiHawkes <- function(multi_covariates,multi_hawkes,omega,omega_alpha,lb,ub,K,
   if(print.level>0) {
     cat("Refinement step\n")
   }
-  refined_out <- nloptr::nloptr(out[[k0]]$solution,estimate_theta_multi_hawkes,opts=args_refi_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster,return_objective=TRUE)
+
+  ## Check if computed value lies in the [lb,ub] region
+  if(all(lb<=out[[k0]]$solution) & all(out[[k0]]$solution<=ub)) {
+    ## It does
+    intial_parameter_values_refinement <- out[[k0]]$solution
+  } else {
+    ## It does not, for some reason this can happen, replace the violating values
+    intial_parameter_values_refinement <- out[[k0]]$solution
+    if(!all(lb<=out[[k0]]$solution)) {
+      lower_bound_violators <- which(lb>out[[k0]]$solution)
+      intial_parameter_values_refinement[lower_bound_violators] <- lb[lower_bound_violators]+(ub[lower_bound_violators]-lb[lower_bound_violators])/100
+    }
+    if(!all(out[[k0]]$solution<=ub)) {
+      upper_bound_violators <- which(ub<out[[k0]]$solution)
+      intial_parameter_values_refinement[upper_bound_violators] <- ub[upper_bound_violators]-(ub[upper_bound_violators]-lb[upper_bound_violators])/100
+    }
+
+    print("In the refinement step starting values outside the limits were produced, replace by bound")
+
+    print("Lower bound:")
+    print(lb)
+    print("Upper bound:")
+    print(ub)
+    print("Actual value")
+    print(out[[k0]]$solution)
+    print("Lower bound compare")
+    print(lb<=out[[k0]]$solution)
+    print("Upper bound compare")
+    print(out[[k0]]$solution<=ub)
+    print("Value to use")
+    print(intial_parameter_values_refinement)
+  }
+  refined_out <- nloptr::nloptr(intial_parameter_values_refinement,estimate_theta_multi_hawkes,opts=args_refi_opt,ub=ub,lb=lb,multi_covariates=multi_covariates,multi_hawkes=multi_hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster,return_objective=TRUE)
 
   ## Run last estimate_hawkes to obtain estimates for alpha and C.
   if(print.level>0) {
