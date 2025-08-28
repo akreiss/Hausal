@@ -417,3 +417,41 @@ estimate_theta_multi_hawkes <- function(theta,multi_covariates,multi_hawkes,omeg
     return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
   }
 }
+
+multi_Hawkes_cross_validation_criterion <- function(p,cluster,K,multi_covariates,multi_Hawkes,omega_to_compute,lb,ub,nos,print.level,max_iteration,tol,alpha_init,link,observation_matrix) {
+  ## Set up vector for output
+  LS <- rep(0,p)
+  sparsity <- rep(0,p)
+
+  ## Compute cross-validation criterion
+  if(is.null(cluster)) {
+    ## Serial Compuation
+    for(jn_step in 1:K) {
+      ## Compute estimates on training data
+      est1 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega_to_compute,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=NULL)
+
+      ## Compute corresponding least squares on left-out data
+      LS <- LS+compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),multi_covariates[[jn_step]],est1$C,est1$alpha,multi_Hawkes[[jn_step]],link=link)
+      sparsity <- sparsity+rowSums(est1$C)
+    }
+  } else {
+    ## Parallel computation
+    ## Compute estimates on omega1
+    parout <- foreach(jn_step=1:K,.combine=rbind) %dopar% {
+      if(print.level>1) {
+        cat("Perform step ",jn_step," of ",K,".\n")
+      }
+
+      ## Compute estimates on training data
+      est1 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega_to_compute,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0        ,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=NULL)
+
+      ## Compute corresponding least squares on left-out data
+      return(c(compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),multi_covariates[[jn_step]],est1$C,est1$alpha,multi_Hawkes[[jn_step]],link=link),rowSums(est1$C)))
+    }
+    LS <- colSums(parout)[1:p]
+    sparsity <- colSums(parout)[(p+1):(2*p)]
+  }
+
+  ## Return cross-validation criterion
+  return(list(CV=LS,s=sparsity))
+}

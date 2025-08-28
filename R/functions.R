@@ -1336,76 +1336,86 @@ cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,
   phi <- (1+sqrt(5))/2
 
   ## Prepare result matrices
-  computed_omega <- matrix(NA,nrow=2*M+1,ncol=p)
-  LSvals <- matrix(0,nrow=2*M+1,ncol=p)
-  omega_ub <- omega_start
+  computed_omega <- matrix(NA,nrow=M+2,ncol=p)
+  LSvals <- matrix(0,nrow=M+2,ncol=p)
+  sparsity_vals <- matrix(0,nrow=M+2,ncol=p)
   omega_lb <- rep(0,p)
+  omega_ub <- omega_start
 
-  ## Perform Golden-Section search
+  #### Perform Golden-Section search
+  ## Compute initial omegas to test
+  interior_omegas <- matrix(NA,nrow=2,ncol=p)
+  interior_omegas[1,] <- omega_ub-(omega_ub-omega_lb)/phi
+  interior_omegas[2,] <- omega_lb+(omega_ub-omega_lb)/phi
+
+  ## Compute CV-Criterion for the lower values of omega
+  if(print.level>0) {
+    cat("Compute CV criterion for initial omega.\n")
+  }
+  CV_crit <- matrix(NA,nrow=2,ncol=p)
+  sparsity <- matrix(NA,nrow=2,ncol=p)
+
+  omega_to_compute <- interior_omegas[1,]
+  CV_out <- multi_Hawkes_cross_validation_criterion(p,cluster,K,multi_covariates,multi_Hawkes,omega_to_compute,lb,ub,nos,print.level,max_iteration,tol,alpha_init,link,observation_matrix)
+  CV_crit[1,] <- CV_out$CV
+  LSvals[1,] <- CV_crit[1,]
+  sparsity[1,] <- CV_out$s
+  sparsity_vals[1,] <- sparsity[1,]
+  computed_omega[1,] <- omega_to_compute
+
+  ## Set up the initial values for the iteration (start by supposing that larger omega is missing for everyone)
+  omega_to_compute <- interior_omegas[2,]
+  missing_CV_crits <- rep(2,p)
+
+  ## Start with iteration
   for(m in 1:M) {
     if(print.level>0) {
       cat("Run ",m," of ",M,".\n")
     }
 
-    ## Compute interior points
-    omega1 <- omega_ub-(omega_ub-omega_lb)/phi
-    omega2 <- omega_lb+(omega_ub-omega_lb)/phi
+    ## Compute cross-validation criterion
+    CV_out <- multi_Hawkes_cross_validation_criterion(p,cluster,K,multi_covariates,multi_Hawkes,omega_to_compute,lb,ub,nos,print.level,max_iteration,tol,alpha_init,link,observation_matrix)
 
-    ## Save omegas
-    computed_omega[2*m-1,] <- omega1
-    computed_omega[2*m  ,] <- omega2
+    ## Update CV_crit and sparsity matrices
+    CV_crit[cbind(missing_CV_crits,1:p)] <- CV_out$CV
+    sparsity[cbind(missing_CV_crits,1:p)] <- CV_out$s
 
-    ## Perform jackknife estimation (in parallel if required)
-    if(is.null(cluster)) {
-      ## Serial Compuation
-      for(jn_step in 1:K) {
-        ## Compute estimates on training data
-        est1 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
-        est2 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+    ## Save the values in the running list
+    LSvals[m+1,] <- CV_out$CV
+    sparsity_vals[m+1,] <- CV_out$s
+    computed_omega[m+1,] <- omega_to_compute
 
-        ## Compute corresponding least squares on left-out data
-        LSvals[2*m-1,] <- LSvals[2*m-1,]+compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),multi_covariates[[jn_step]],est1$C,est1$alpha,multi_Hawkes[[jn_step]],link=link)
-        LSvals[2*m  ,] <- LSvals[2*m  ,]+compute_individual_lest_squares_theta(c(est2$beta,est2$gamma),multi_covariates[[jn_step]],est2$C,est2$alpha,multi_Hawkes[[jn_step]],link=link)
-      }
-    } else {
-      ## Parallel computation
-      ## Compute estimates on omega1
-      parout1 <- foreach(jn_step=1:K,.combine=rbind) %dopar% {
-        if(print.level>1) {
-          cat("Perform step ",jn_step," of ",K,".\n")
-        }
+    ## Compute new bounds, use Golden-Section update or update upper bound if no network estimated
+    upper_better <- which(CV_crit[1,]> CV_crit[2,] & sparsity[2,]!=0)
+    lower_better <- which(CV_crit[1,]<=CV_crit[2,] | sparsity[2,]==0)
 
-        ## Compute estimates on training data
-        est1 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0        ,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+    ## Compute update
+    omega_lb[upper_better] <- interior_omegas[1,upper_better]
+    omega_ub[lower_better] <- interior_omegas[2,lower_better]
 
-        ## Compute corresponding least squares on left-out data
-        return(compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),multi_covariates[[jn_step]],est1$C,est1$alpha,multi_Hawkes[[jn_step]],link=link))
-      }
-      LSvals[2*m-1,] <- colSums(parout1)
+    ## Prepare next iteration
+    interior_omegas <- matrix(NA,nrow=2,ncol=p)
+    interior_omegas[1,] <- omega_ub-(omega_ub-omega_lb)/phi
+    interior_omegas[2,] <- omega_lb+(omega_ub-omega_lb)/phi
 
-      ## Compute estimates on omega2
-      if(print.level>0) {
-        cat("Consider second omega.\n")
-      }
-      parout2 <- foreach(jn_step=1:K,.combine=rbind) %dopar% {
-        if(print.level>1) {
-          cat("Perform step ",jn_step," of ",K,".\n")
-        }
+    new_omega_position <- rep(NA,p)
+    new_omega_position[lower_better] <- 1
+    new_omega_position[upper_better] <- 2
+    old_omega_new_position <- 3-new_omega_position
 
-        ## Compute estimates on training data
-        est2 <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+    omega_to_compute <- interior_omegas[cbind(new_omega_position,1:p)]
 
-        ## Compute corresponding least squares on left-out data
-        return(compute_individual_lest_squares_theta(c(est2$beta,est2$gamma),multi_covariates[[jn_step]],est2$C,est2$alpha,multi_Hawkes[[jn_step]],link=link))
-      }
-      LSvals[2*m  ,] <- colSums(parout2)
-    }
+    ## Update CV_crit and sparsity
+    CV_crit_old <- CV_crit
+    sparsity_old <- sparsity
 
-    ## Compute new bounds, use Golden-Section update
-    upper_better <- which(LSvals[2*m-1,]> LSvals[2*m,])
-    lower_better <- which(LSvals[2*m-1,]<=LSvals[2*m,])
-    omega_lb[upper_better] <- omega1[upper_better]
-    omega_ub[lower_better] <- omega2[lower_better]
+    CV_crit <- matrix(NA,nrow=2,ncol=p)
+    sparsity <- matrix(NA,nrow=2,ncol=p)
+
+    CV_crit[cbind(old_omega_new_position,1:p)] <- CV_crit_old[cbind(new_omega_position,1:p)]
+    sparsity[cbind(old_omega_new_position,1:p)] <- sparsity_old[cbind(new_omega_position,1:p)]
+
+    missing_CV_crits <- new_omega_position
   }
 
   ## Compute Estimate for the mid point of the resulting interval
@@ -1413,32 +1423,13 @@ cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,
     cat("Consider intermediate omega.\n")
   }
   omega_mid <- (omega_lb+omega_ub)/2
-  computed_omega[2*M+1,] <- omega_mid
+  computed_omega[M+2,] <- omega_mid
 
-  if(is.null(cluster)) {
-    ## Serial computation
-    for(jn_step in 1:K) {
-      ## Compute estimate on training data
-      est <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
+  CV_out <- multi_Hawkes_cross_validation_criterion(p,cluster,K,multi_covariates,multi_Hawkes,omega_mid,lb,ub,nos,print.level,max_iteration,tol,alpha_init,link,observation_matrix)
 
-      ## Compute corresponding least squares on left-out data
-      LSvals[2*M+1,] <- LSvals[2*M+1,]+compute_individual_lest_squares_theta(c(est$beta,est$gamma),multi_covariates[[jn_step]],est$C,est$alpha,multi_Hawkes[[jn_step]],link=link)
-    }
-  } else {
-    ## Parallel computation
-    parout <- foreach(jn_step=1:K,.combine=rbind) %dopar% {
-      if(print.level>1) {
-        cat("Perform step ",jn_step," of ",K,".\n")
-      }
-
-      ## Compute estimate on training data
-      est <- MultiHawkes(multi_covariates[-jn_step],multi_Hawkes[-jn_step],omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
-
-      ## Compute corresponding least squares on left-out data
-      return(compute_individual_lest_squares_theta(c(est$beta,est$gamma),multi_covariates[[jn_step]],est$C,est$alpha,multi_Hawkes[[jn_step]],link=link))
-    }
-    LSvals[2*M+1,] <- colSums(parout)
-  }
+  ## Save the values in the running list
+  LSvals[M+2,] <- CV_out$CV
+  sparsity_vals[M+2,] <- CV_out$s
 
   ## Find minimum
   return_omega <- rep(NA,p)
@@ -1447,7 +1438,7 @@ cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,
     return_omega[i] <- min(computed_omega[min_ind,i])
   }
 
-  return(list(omega=return_omega,computed_omega=computed_omega,LSvals=LSvals))
+  return(list(omega=return_omega,computed_omega=computed_omega,LSvals=LSvals,sparsity=sparsity_vals))
 }
 
 
