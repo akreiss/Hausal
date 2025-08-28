@@ -99,6 +99,6 @@ where the penalty equals
 
 Sum over i( omega\link{i}\emph{sum(C\link{i,})) + omega_alpha}sum(alpha).
 
-The estimation method is the same as in \code{\link[=NetHawkes_robust]{NetHawkes_robust()}}. De-biasing is
+The estimation method is the same as in \code{\link[=NetHawkes]{NetHawkes()}}. De-biasing is
 not supported for multi observations.
 }

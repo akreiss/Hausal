@@ -1068,6 +1068,12 @@ plot_count_intensities <- function(hawkes,T,names=NULL) {
 #'   be `NULL` (the default).
 #' @param show.plot Logical value, if `TRUE` (the default) the network is
 #'   plotted, otherwise the network is only returned but not plotted.
+#' @param pval Vector that contains a p-value for each vertex, e.g., as returned
+#'             from [node_wise_influence_test()]. This is saved as a vertex
+#'             attribute. If `NULL`, the default, it is ignored.
+#' @param level If p-values are provided in `pval`, they are compared against
+#'              `level` after a Bonferroni-correction. Significant vertices are
+#'              plotted in red. Ignored if `pval=NULL` or `show.plot=FALSE`.
 #' @param ... Additional arguments passed to the plotting routine of igraph if
 #'   `show.plot=TRUE`.
 #'
@@ -1075,7 +1081,7 @@ plot_count_intensities <- function(hawkes,T,names=NULL) {
 #'   described under details. If `show.plot=TRUE`, the network is in addition
 #'   plotted.
 #' @export
-plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.names=NULL,show.plot=TRUE,...) {
+plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.names=NULL,show.plot=TRUE,pval=NULL,level=NULL,...) {
   ## Create Network
   G <- igraph::graph_from_adjacency_matrix(edge.scaling*estHawkes$C,mode="directed",weighted="weight")
 
@@ -1087,13 +1093,26 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
     igraph::V(G)$name <- vertex.names
   }
 
+  ## Add p-values if provided
+  if(!is.null(pval)) {
+    igraph::V(G)$pval <- pval
+  } else {
+    level <- NULL
+  }
+
   ## Create Plot if asked
   if(show.plot) {
     ## Generate Node Sizes
     node_sizes <- vertex.scaling*(0.1+sqrt(estHawkes$alpha))
 
+    ## Make significant vertices red
+    vertex_colours <- rep("skyblue",length(V(G)))
+    if(!is.null(level)) {
+      vertex_colours[V(G)$pval<=level/p] <- "red"
+    }
+
     ## Plot
-    igraph::plot.igraph(G,vertex.size=node_sizes,edge.width=igraph::E(G)$weight,...)
+    igraph::plot.igraph(G,vertex.size=node_sizes,edge.width=igraph::E(G)$weight,vertex.color=vertex_colours,...)
   }
 
   return(G)

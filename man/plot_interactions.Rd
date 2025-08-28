@@ -10,6 +10,8 @@ plot_interactions(
   edge.scaling = 1,
   vertex.names = NULL,
   show.plot = TRUE,
+  pval = NULL,
+  level = NULL,
   ...
 )
 }
@@ -25,6 +27,14 @@ be \code{NULL} (the default).}
 
 \item{show.plot}{Logical value, if \code{TRUE} (the default) the network is
 plotted, otherwise the network is only returned but not plotted.}
+
+\item{pval}{Vector that contains a p-value for each vertex, e.g., as returned
+from \code{\link[=node_wise_influence_test]{node_wise_influence_test()}}. This is saved as a vertex
+attribute. If \code{NULL}, the default, it is ignored.}
+
+\item{level}{If p-values are provided in \code{pval}, they are compared against
+\code{level} after a Bonferroni-correction. Significant vertices are
+plotted in red. Ignored if \code{pval=NULL} or \code{show.plot=FALSE}.}
 
 \item{...}{Additional arguments passed to the plotting routine of igraph if
 \code{show.plot=TRUE}.}
