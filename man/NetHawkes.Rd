@@ -11,6 +11,9 @@ NetHawkes(
   omega_alpha,
   lb,
   ub,
+  K,
+  starting_beta = NULL,
+  starting_gamma = NULL,
   C.ind.pen = NULL,
   print.level = 0,
   max_iteration = 100,
@@ -43,6 +46,14 @@ the LASSO penalty with respect to the individuals intensities a.}
 first q entries of \code{lb} and \code{ub} provide lower and upper bounds on beta,
 respectively. The last entry provides a lower (resp. upper) bound on gamma.}
 
+\item{K}{Number of starting values to use}
+
+\item{starting_beta}{Matrix, each row of which corresponds to a starting value
+for beta to be used}
+
+\item{starting_gamma}{Vector, each entry of which corresponds to a starting
+value for gamma to be used}
+
 \item{C.ind.pen}{Individual weights for the LASSO estimation of C, which are
 passed to glmnet as penalty.factor. The weights are internally rescaled. To
 achieve the criterion function from the paper, set it equal to \code{NULL} (the
@@ -64,14 +75,14 @@ non-negative vector of the same length, it will be applied to linear
 transformation of the covariates with \code{beta0} to obtain the baseline
 intensity. The defualt choice is  \code{exp}.}
 
-\item{observation_matrix_network, observation_matrix_debiasing}{Similarly as
-in \code{\link[=estimate_hawkes]{estimate_hawkes()}} these matrices are automatically computed when
-\code{NULL} is provided here (the default). Since the matrix is the same in
-repeated calls, it can lead to a speed up to compute the matrices once
-using \code{\link[=create_observation_matrix]{create_observation_matrix()}}. The \code{observation_matrix_network} is of
+\item{observation_matrix_network, observation_matrix_debiasing}{Similarly as in
+\code{\link[=estimate_hawkes]{estimate_hawkes()}} these matrices are automatically computed when \code{NULL} is
+provided here (the default). Since the matrix is the same in repeated calls,
+it can lead to a speed up to compute the matrices once using
+\code{\link[=create_observation_matrix]{create_observation_matrix()}}. The \code{observation_matrix_network} is of
 dimension \code{p} and the \code{observation_matrix_debiasing} is of dimension
-\code{1+q+p+p^2-1}. Here \code{p} denotes the number of vertices and \code{q} the
-dimension of the covariates.}
+\code{1+q+p+p^2-1}. Here \code{p} denotes the number of vertices and \code{q} the dimension
+of the covariates.}
 
 \item{cluster}{If \code{NULL} (the default) serial computations are executed. If a
 cluster as returned by \code{makeCluster} is provided (after calling
@@ -95,18 +106,35 @@ used, which can speed-up computations.}
 \code{NetHawkes} returns a list containing the elements:
 \itemize{
 \item \code{first_stage}: The estimator from the first stage as returned by
-\code{\link[=estimate_hawkes]{estimate_hawkes()}}. It is computed using no initial values and
-estimating all model parameters.
+\code{\link[=estimate_hawkes]{estimate_hawkes()}}. It is computed using no initial values and estimating
+all model parameters.
 \item \code{second_stage}: The estimator from the second stage as returned by
-\code{\link[=estimate_hawkes]{estimate_hawkes()}}. It is computed fixing the values of \code{beta} and
-\code{gamma} to the de-biased estimators, and updating only \code{C} and \code{alpha}.
+\code{\link[=estimate_hawkes]{estimate_hawkes()}}. It is computed fixing the values of \code{beta} and \code{gamma}
+to the de-biased estimators, and updating only \code{C} and \code{alpha}.
 \item \code{debiasing}: The output of \code{\link[=debias_Hawkes]{debias_Hawkes()}} from de-biasing the first
 stage estimator.
+\item \code{nloptr}: The complete output of the refinement call from \code{nloptr}. This
+allows, e.g., to check for convergence of the optimization.
 }
 }
 \description{
-\code{NetHawkes} combines the functions \code{estimate_hawkes} and \code{debias_Hawkes} in a
-two-step procedure: Estimate all parameters in the first stage, de-bias
-\code{beta} and \code{gamma}, and fit, in a second stage, \code{C} and \code{alpha} keeping the
-de-biased values of \code{beta} and \code{gamma} fixed.
+\code{NetHawkes} combines the functions \code{\link[=estimate_hawkes]{estimate_hawkes()}} and \code{\link[=debias_Hawkes]{debias_Hawkes()}}
+in a three-step procedure: Estimate all parameters in the first stage, de-bias
+\code{beta} and \code{gamma} in the second stage, and fit, in a third stage, \code{C} and
+\code{alpha} keeping the de-biased values of \code{beta} and \code{gamma} fixed.
+}
+\details{
+\code{NetHawkes} starts the optimization from \code{K} random starting values for beta
+and gamma. If the user supplies some starting values in \code{starting_beta} and
+\code{starting_gamma}, these will be extend by random values selected uniformly
+between the supplied boundaries in \code{lb} and \code{ub}. Then, the \code{nloptr} package
+is used to optimize with respect to (beta,gamma), while for each value of
+(beta,gamma), \code{\link[=estimate_hawkes]{estimate_hawkes()}} will be run for fixed \verb{(beta,gamma)} to find
+the optimal value. Then, we take the minimum of all \code{K} results. These runs of
+\code{nloptr} are computed with tolerance level given by 100 times \code{tol}. The
+optimal value is then refined by another run as before initialized with the
+minimzer and tolerance level \code{tol}.
+
+The above concerns the first stage estimation only. The second and third stage
+are single calls to \code{\link[=debias_Hawkes]{debias_Hawkes()}} and \code{\link[=estimate_hawkes]{estimate_hawkes()}}, respectively.
 }
