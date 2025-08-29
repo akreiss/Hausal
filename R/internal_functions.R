@@ -128,7 +128,6 @@ nodewise_covariance_test <- function(multi_hawkes,multi_covariates,beta,gamma,al
 LASSO_single_line <- function(Y,i,p,T,M_C,omega,m,C.ind.pen) {
   sdY <- sd(Y[,i])*sqrt((m-1)/m)
   sdX <- apply(M_C,2,sd)*sqrt((m-1)/m)
-  q <- length(sdX)
 
   if(sdY==0) {
     ## Y[,i] is identical to zero, in this case the zero vector provides a
@@ -136,14 +135,24 @@ LASSO_single_line <- function(Y,i,p,T,M_C,omega,m,C.ind.pen) {
     ## to work properly.
     out <- rep(0,p)
 
+  } else if(sum(abs(M_C[,i]))==0) {
+    ## Vertex i is inactive, return a zero vector
+    warning(sprintf("Vertex %d is not active, consider removing it",i))
+    out <- rep(0,p)
   } else {
     ## Perform LASSO estimation
-    K <- q/sum(C.ind.pen/sdX)
-    pen.weights <- K*C.ind.pen/sdX
+    ## Get active vertices
+    active_vertices <- which(sdX>0)
+    q <- length(active_vertices)
 
-    LASSO <- glmnet::glmnet(t(t(M_C)/sdX),Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p),penalty.factor=pen.weights)
-    out_raw <- coef(LASSO,s=T*omega[i]/(m*sdY*K),exact=TRUE,x=t(t(M_C)/sdX),y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE,penalty.factor=pen.weights)[-1]
-    out <- sdY*out_raw/sdX
+    ## Compute penalty weights
+    K <- q/sum(C.ind.pen[active_vertices]/sdX[active_vertices])
+    pen.weights <- K*C.ind.pen[active_vertices]/sdX[active_vertices]
+
+    LASSO <- glmnet::glmnet(t(t(M_C[,active_vertices])/sdX[active_vertices]),Y[,i]/sdY,intercept=FALSE,standardize=FALSE,lower.limits=rep(0,p),penalty.factor=pen.weights)
+    out_raw <- coef(LASSO,s=T*omega[i]/(m*sdY*K),exact=TRUE,x=t(t(M_C[,active_vertices])/sdX[active_vertices]),y=Y[,i]/sdY,lower.limits=rep(0,p),intercept=FALSE,standardize=FALSE,penalty.factor=pen.weights)[-1]
+    out <- rep(0,p)
+    out[active_vertices] <- sdY*out_raw/sdX[active_vertices]
   }
 
   return(out)
