@@ -1108,7 +1108,7 @@ plot_interactions <- function(estHawkes,vertex.scaling=1,edge.scaling=1,vertex.n
     ## Make significant vertices red
     vertex_colours <- rep("skyblue",length(V(G)))
     if(!is.null(level)) {
-      vertex_colours[V(G)$pval<=level/p] <- "red"
+      vertex_colours[V(G)$pval<=level/vcount(G)] <- "red"
     }
 
     ## Plot
