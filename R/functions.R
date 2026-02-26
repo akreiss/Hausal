@@ -10,6 +10,18 @@
 #' different calls unless when the random seed is set before calling the
 #' function and setting the `rand_seed` value.
 #'
+#' As long as `promote_one_event` is set to `FALSE`, the provided covariates
+#' will not be altered. If `promote_one_event` equals `TRUE`, during the
+#' simulation process, a new covariate will be provided, i.e., the existing
+#' covariate matrices will be extended by another column. It will contain a `1`
+#' if the corresponding vertex has already experienced an event. The provided
+#' parameter vector `beta0` will be extended by `beta_poe` and the baseline is
+#' computed using the new sets of covariates and parameter vector. This has the
+#' effect that baseline events occur with a lower probability after the first
+#' event in each process. This feature provides correct results only when
+#' `link=exp`. Moreover, only negative values of `beta_poe` are handled
+#' correctly.
+#'
 #' `covariates` is a list of two elements `times` and `cov`
 #' * `times` is a vector of increasing time points with last element equal to
 #'   `T`. `i`-th element of `cov` contains the covariate information valid for
@@ -42,6 +54,15 @@
 #'   converted to an integer value. For the simulation it is necessary to
 #'   compute random numbers in a C sub-routine, `rand_seed` will be passed to
 #'   this routine. See also the Details section.
+#' @param promote_one_event If `FALSE` (the default), the simulation is
+#'   performed as usual. If `TRUE`, another covariate is introduced that
+#'   indicates if an event has already occured in the corresponding vertex. The
+#'   baseline is then computed with the new covariates and a parameter vector
+#'   extended by `beta_poe`. This requires `link=exp`. See below for details
+#' @param beta_poe If `promote_one_event=FALSE`, this parameter is ignored.
+#'   Otherwise, its value extends `beta0` to give the effect of an event having
+#'   already occured in a process. Its value must be negative to provide correct
+#'   results.
 #'
 #' @returns A list with the following elements:
 #' * `EL`: A matrix with four columns, each row corresponds to an event. The
@@ -63,7 +84,7 @@
 #' * `covariates`: A copy of the input `covariates`.
 #'
 #' @export
-simulate_hawkes <- function(covariates,beta0,gamma,alpha,C,T,link=exp,print.level=0,rand_seed=NA) {
+simulate_hawkes <- function(covariates,beta0,gamma,alpha,C,T,link=exp,print.level=0,rand_seed=NA,promote_one_event=FALSE,beta_poe=0) {
   p <- dim(C)[1]
 
   ## Compute Baseline
@@ -96,7 +117,39 @@ simulate_hawkes <- function(covariates,beta0,gamma,alpha,C,T,link=exp,print.leve
   ord <- order(event_list[,4])
   event_list <- event_list[ord,,drop=FALSE]
 
-  #### Step 4: Compute intensities
+  #### Step 4: Check if one event promotion is activated
+  if(promote_one_event & length(event_list)>0) {
+    ## Remove repeated events according to the parameter from the baseline
+    ## Find baseline events
+    baseline_events <- event_list[event_list[,2]==0,]
+
+    ## Go through all baseline events and check if they have to be removed
+    for(i in 1:dim(baseline_events)[1]) {
+      ## Check if the current baseline event is in a process that experienced an event already
+      if(min(event_list[event_list[,3]==baseline_events[i,3],4])<baseline_events[i,4]) {
+        ## Yes, the process has a previous event, check if baseline event has to removed
+        if(runif(1)>exp(beta_poe)) {
+          ## Yes, event has to be removed
+          event_list <- remove_event(event_list,baseline_events[i,1])
+        }
+      }
+    }
+
+    ## Compute first event times
+    vertex_events <- split(event_list[,4],event_list[,3])
+    first_event_times <- rep(Inf, p)
+    first_event_times[as.integer(names(vertex_events))] <- sapply(vertex_events,min)
+
+    ## Update covariates
+    for(k in 1:length(covariates$cov)) {
+      covariates$cov[[k]] <- cbind(covariates$cov[[k]],first_event_times<covariates$times[k])
+    }
+
+    ## Recompute baseline
+    baseline <- compute_baseline_intensities(covariates,c(beta0,beta_poe),alpha,link=link)
+  }
+
+  #### Step 5: Compute intensities
   intint <- .Call("compute_intensity_integrals",event_list,as.double(gamma),covariates$times,baseline,as.double(C))
 
   ## Prepare Output
@@ -1181,7 +1234,7 @@ compute_omega <- function(hawkes,p,T,alpha3,gamma_bar,mu=log(2)) {
 #'
 #' where the penalty equals
 #'
-#' Sum over i( omega[i]*sum(C[i,])) + omega_alpha*sum(alpha).
+#' \deqn{\sum_i\omega_i*\sum_j C_{i,j} + \omega_{\alpha}\cdot\sum_i\alpha_i.}
 #'
 #' The estimation method is the same as in [NetHawkes()]. De-biasing is
 #' not supported for multi observations.
