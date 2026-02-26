@@ -97,7 +97,7 @@ Sum over k ( Least squares loss for realisation k) + Penalty
 
 where the penalty equals
 
-Sum over i( omega\link{i}\emph{sum(C\link{i,})) + omega_alpha}sum(alpha).
+\deqn{\sum_i\omega_i*\sum_j C_{i,j} + \omega_{\alpha}\cdot\sum_i\alpha_i.}
 
 The estimation method is the same as in \code{\link[=NetHawkes]{NetHawkes()}}. De-biasing is
 not supported for multi observations.

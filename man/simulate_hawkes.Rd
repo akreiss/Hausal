@@ -13,7 +13,9 @@ simulate_hawkes(
   T,
   link = exp,
   print.level = 0,
-  rand_seed = NA
+  rand_seed = NA,
+  promote_one_event = FALSE,
+  beta_poe = 0
 )
 }
 \arguments{
@@ -46,6 +48,17 @@ the simulation.}
 converted to an integer value. For the simulation it is necessary to
 compute random numbers in a C sub-routine, \code{rand_seed} will be passed to
 this routine. See also the Details section.}
+
+\item{promote_one_event}{If \code{FALSE} (the default), the simulation is
+performed as usual. If \code{TRUE}, another covariate is introduced that
+indicates if an event has already occured in the corresponding vertex. The
+baseline is then computed with the new covariates and a parameter vector
+extended by \code{beta_poe}. This requires \code{link=exp}. See below for details}
+
+\item{beta_poe}{If \code{promote_one_event=FALSE}, this parameter is ignored.
+Otherwise, its value extends \code{beta0} to give the effect of an event having
+already occured in a process. Its value must be negative to provide correct
+results.}
 }
 \value{
 A list with the following elements:
@@ -80,6 +93,18 @@ due to mutual excitation.
 The result of the function is random and will therefore be different for
 different calls unless when the random seed is set before calling the
 function and setting the \code{rand_seed} value.
+
+As long as \code{promote_one_event} is set to \code{FALSE}, the provided covariates
+will not be altered. If \code{promote_one_event} equals \code{TRUE}, during the
+simulation process, a new covariate will be provided, i.e., the existing
+covariate matrices will be extended by another column. It will contain a \code{1}
+if the corresponding vertex has already experienced an event. The provided
+parameter vector \code{beta0} will be extended by \code{beta_poe} and the baseline is
+computed using the new sets of covariates and parameter vector. This has the
+effect that baseline events occur with a lower probability after the first
+event in each process. This feature provides correct results only when
+\code{link=exp}. Moreover, only negative values of \code{beta_poe} are handled
+correctly.
 
 \code{covariates} is a list of two elements \code{times} and \code{cov}
 \itemize{
