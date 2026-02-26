@@ -464,3 +464,30 @@ multi_Hawkes_cross_validation_criterion <- function(p,cluster,K,multi_covariates
   ## Return cross-validation criterion
   return(list(CV=LS,s=sparsity))
 }
+
+## Remove a given event from the event list
+remove_event <- function(event_list,id) {
+  ## Variables
+  remove <- NULL
+  current <- id
+  REMOVE_FLAG <- TRUE
+
+  ## Find events to remove until there are no more spinoff events
+  while(REMOVE_FLAG) {
+    ## Add the most recently events (in the first run, the event itself) to the remove list
+    remove <- c(remove,current)
+
+    ## Locate spinoff-events from the current wave
+    current <- event_list[event_list[,2] %in% current,1]
+
+    ## Check if there is a new wave
+    if(length(current)==0) {
+      REMOVE_FLAG <- FALSE
+    }
+  }
+
+  ## Remove the events
+  new_event_list <- event_list[!(event_list[,1] %in% remove),]
+
+  return(new_event_list)
+}
