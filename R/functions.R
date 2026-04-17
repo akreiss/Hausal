@@ -150,7 +150,12 @@ simulate_hawkes <- function(covariates,beta0,gamma,alpha,C,T,link=exp,print.leve
   }
 
   #### Step 5: Compute intensities
-  intint <- .Call("compute_intensity_integrals",event_list,as.double(gamma),covariates$times,baseline,as.double(C))
+  if(length(event_list)>0) {
+    intint <- .Call("compute_intensity_integrals",event_list,as.double(gamma),covariates$times,baseline,as.double(C))
+  } else {
+    warning("No events in Hawkes process, do not use intensities or integrals provided")
+    intint <- list(NA,NA)
+  }
 
   ## Prepare Output
   colnames(event_list) <- c("Id","Parent Id","Process","Time")
