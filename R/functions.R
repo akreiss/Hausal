@@ -121,7 +121,7 @@ simulate_hawkes <- function(covariates,beta0,gamma,alpha,C,T,link=exp,print.leve
   if(promote_one_event & length(event_list)>0) {
     ## Remove repeated events according to the parameter from the baseline
     ## Find baseline events
-    baseline_events <- event_list[event_list[,2]==0,]
+    baseline_events <- event_list[event_list[,2]==0,,drop=FALSE]
 
     ## Go through all baseline events and check if they have to be removed
     for(i in 1:dim(baseline_events)[1]) {
