@@ -474,7 +474,7 @@ remove_event <- function(event_list,id) {
 
   ## Find events to remove until there are no more spinoff events
   while(REMOVE_FLAG) {
-    ## Add the most recently events (in the first run, the event itself) to the remove list
+    ## Add the most recent event (in the first run, the event itself) to the remove list
     remove <- c(remove,current)
 
     ## Locate spinoff-events from the current wave
@@ -487,7 +487,7 @@ remove_event <- function(event_list,id) {
   }
 
   ## Remove the events
-  new_event_list <- event_list[!(event_list[,1] %in% remove),]
+  new_event_list <- event_list[!(event_list[,1] %in% remove),,drop=FALSE]
 
   return(new_event_list)
 }
