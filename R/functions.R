@@ -1627,8 +1627,8 @@ cvHawkes <- function(Hawkes,covariates,omega_start,lb,ub,nos=5,tf=0.8,M=5,starti
     est2 <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
 
     ## Compute corresponding least squares
-    LSvals[2*m-1,] <- compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),test_covariates,est1$C,est1$alpha,test_hawkes,link=link)
-    LSvals[2*m  ,] <- compute_individual_lest_squares_theta(c(est2$beta,est2$gamma),test_covariates,est2$C,est2$alpha,test_hawkes,link=link)
+    LSvals[2*m-1,] <- compute_individual_lest_squares_theta(c(est1$first_stage$beta,est1$first_stage$gamma),test_covariates,est1$first_stage$C,est1$first_stage$alpha,test_hawkes,link=link)
+    LSvals[2*m  ,] <- compute_individual_lest_squares_theta(c(est2$first_stage$beta,est2$first_stage$gamma),test_covariates,est2$first_stage$C,est2$first_stage$alpha,test_hawkes,link=link)
 
     ## Compute new bounds
     if(sum(est1$C)==0) {
@@ -1647,7 +1647,7 @@ cvHawkes <- function(Hawkes,covariates,omega_start,lb,ub,nos=5,tf=0.8,M=5,starti
   omega_mid <- (omega_lb+omega_ub)/2
   computed_omega[2*M+1,] <- omega_mid
   est <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
-  LSvals[2*M+1,] <- compute_individual_lest_squares_theta(c(est$beta,est$gamma),test_covariates,est$C,est$alpha,test_hawkes,link=link)
+  LSvals[2*M+1,] <- compute_individual_lest_squares_theta(c(est$first_stage$beta,est$first_stage$gamma),test_covariates,est$first_stage$C,est$first_stage$alpha,test_hawkes,link=link)
 
   ## Find minimum
   return_omega <- rep(NA,p)
