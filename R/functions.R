@@ -1566,7 +1566,7 @@ cvMultiHawkes <- function(multi_Hawkes,multi_covariates,omega_start,lb,ub,nos=5,
 #'              parameters provided in entry `computed_omega`.
 #'
 #' @export
-cvHawkes <- function(Hawkes,covariates,omega_start,lb,ub,nos=5,tf=0.8,M=5,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL) {
+cvHawkes <- function(Hawkes,covariates,omega_start,lb,ub,nos=5,tf=0.8,M=5,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,alpha_init=NULL,link=exp,observation_matrix=NULL,cluster=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
   ## Read information
   T <- max(covariates$times)
   p <- dim(covariates$cov[[1]])[1]
@@ -1623,8 +1623,8 @@ cvHawkes <- function(Hawkes,covariates,omega_start,lb,ub,nos=5,tf=0.8,M=5,starti
     computed_omega[2*m  ,] <- omega2
 
     ## Compute estimates
-    est1 <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster)
-    est2 <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster)
+    est1 <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
+    est2 <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
 
     ## Compute corresponding least squares
     LSvals[2*m-1,] <- compute_individual_lest_squares_theta(c(est1$beta,est1$gamma),test_covariates,est1$C,est1$alpha,test_hawkes,link=link)
@@ -1646,7 +1646,7 @@ cvHawkes <- function(Hawkes,covariates,omega_start,lb,ub,nos=5,tf=0.8,M=5,starti
   ## Compute Estimate for the mid point of the resulting interval
   omega_mid <- (omega_lb+omega_ub)/2
   computed_omega[2*M+1,] <- omega_mid
-  est <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,,omega=omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster)
+  est <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
   LSvals[2*M+1,] <- compute_individual_lest_squares_theta(c(est$beta,est$gamma),test_covariates,est$C,est$alpha,test_hawkes,link=link)
 
   ## Find minimum
