@@ -849,9 +849,11 @@ NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,starting_beta=
 #' @param delta Mesh size of the grid to be used. The default is 0.5.
 #'
 #' @return The retuned value is a list of the same structure as for
-#'   [NetHawkes()] but with an additional element `nloptr` that contains the
-#'   complete output of the refinement call from `nloptr`. This allows, e.g., to
-#'   check for convergence of the optimization.
+#'   [NetHawkes()] but with an two additional elements: `nloptr` that contains
+#'   the complete output of the refinement call from `nloptr`. This allows,
+#'   e.g., to check for convergence of the optimization. Moreover, `grid`
+#'   contains the parameters (`beta` first and then `gamma`) and the values of
+#'   the objective function that were found in the grid search.
 #'
 #' @export
 NetHawkes_gridsearch <- function(covariates,hawkes,omega,omega_alpha,lb,ub,delta=0.5,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
@@ -954,7 +956,7 @@ NetHawkes_gridsearch <- function(covariates,hawkes,omega,omega_alpha,lb,ub,delta
   }
   est_second_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=NULL,ub=NULL,C.ind.pen=C.ind.pen,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=debiased_est$beta_debiased,gamma_init=debiased_est$gamma_debiased,alpha_init=eh_out$alpha,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
 
-  return(list(first_stage=eh_out,second_stage=est_second_stage,debiasing=debiased_est,nloptr=refined_out))
+  return(list(first_stage=eh_out,second_stage=est_second_stage,debiasing=debiased_est,nloptr=refined_out,grid=list(parameter=grid,objective=obj_vals)))
 }
 
 
