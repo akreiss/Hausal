@@ -1669,7 +1669,7 @@ cvHawkes <- function(Hawkes,covariates,omega_start,lb,ub,nos=5,tf=0.8,M=5,starti
 #' indicates that the corresponding vertex has at least one incoming edge.
 #'
 #' The test is based on a permutation strategy. Specifically, to test for
-#' incomind edges in vertex i, `per` many datasets are simulated using the
+#' incoming edges in vertex i, `per` many datasets are simulated using the
 #' provided parameters, but where the i-th row of `C` is replaced by zeros. In
 #' each dataset (including the original dataset), the covariance test statistic
 #' is computed for the LASSO regression that estimates the corresponding row of
@@ -1741,4 +1741,68 @@ internal_call <- function(p,b,per,C,K,multi_covariates,beta,gamma,alpha,null_C,T
   }
 
   return(test)
+}
+
+#' Compute edge-wise surrogate permutation test
+#'
+#' Computes a p-value for each edge that qunatifies its significance in the
+#'  data. A low p-value indicates that the corresponding edge corrensponds to a
+#'  significant influence.
+#'
+#' The test is based on a permutation strategy. Specifically, for `per` many
+#' repetitions, we reshuffle the events within each instance of the multiple
+#' Hawkes process `multiHawkes` and compute a new estimate for the influence
+#' network `C` based on the reshuffled data. Because of the reshuffling, the
+#' relation between the processes is removed, i.e., the reshuffled data
+#' corresponds to a dataset with the same marginal frequencies of events, but
+#' there are no mutual influences.
+#'
+#' @inheritParams cvMultiHawkes
+#' @param per Number of permutations in the permuation test, defaults to 100
+#' @param C0 The estimated network against which the shuffled datasets are
+#'           compared
+#' @param beta0,gamma0 Parameters to be used for estimating the influences,
+#'                     these can be, e.g., estimates returned by [MultiHawkes()]
+#'
+#'
+#' @returns A matrix of p-values
+#'
+#' @export
+multiHawkes_surrogate_test <- function(multi_hawkes,multi_covariates,per,C0,beta0,gamma0,omega,omega_alpha) {
+  ## Read data from input
+  K <- length(multi_hawkes)
+  theta0 <- c(beta0,gamma0)
+  p <- dim(C0)[1]
+
+  ## Compute C estimates from permutation
+  C_permute <- matrix(NA,nrow=per,ncol=p*p)
+  for(b in 1:per) {
+    ## Permute data
+    permuted_hawkes <- list()
+    for(k in 1:K) {
+      permuted_hawkes[[k]] <- list(EL=permute_and_sort(multi_hawkes[[k]]$EL))
+    }
+
+    ## Compute estimate on permuted data
+    out <- estimate_theta_multi_hawkes(theta=theta0,multi_covariates=multi_covariates,multi_hawkes=permuted_hawkes,omega=omega,omega_alpha=omega_alpha,print.level=0,max_iteration=100,link=exp)
+
+    C_permute[b,] <- c(out$C)
+  }
+
+  ## Compute p-values
+  edge_pvals <- matrix(colMeans(t(t(C_permute) >= c(C0))),nrow=p,ncol=p)
+
+  return(edge_pvals)
+}
+
+## Function for permuting entire event list
+permute_and_sort <- function(EL) {
+  # Permute event times
+  x <-EL[,4]
+  EL[,4] <- sample(x,length(x))
+
+  # Order new event list
+  EL <- EL[order(EL[,4]),,drop=FALSE]
+
+  return(EL)
 }

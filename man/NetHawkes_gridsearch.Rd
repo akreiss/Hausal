@@ -96,9 +96,11 @@ used, which can speed-up computations.}
 }
 \value{
 The retuned value is a list of the same structure as for
-\code{\link[=NetHawkes]{NetHawkes()}} but with an additional element \code{nloptr} that contains the
-complete output of the refinement call from \code{nloptr}. This allows, e.g., to
-check for convergence of the optimization.
+\code{\link[=NetHawkes]{NetHawkes()}} but with an two additional elements: \code{nloptr} that contains
+the complete output of the refinement call from \code{nloptr}. This allows,
+e.g., to check for convergence of the optimization. Moreover, \code{grid}
+contains the parameters (\code{beta} first and then \code{gamma}) and the values of
+the objective function that were found in the grid search.
 }
 \description{
 \code{NetHawkes_gridsearch} works similarly as \code{\link[=NetHawkes]{NetHawkes()}} but it uses a

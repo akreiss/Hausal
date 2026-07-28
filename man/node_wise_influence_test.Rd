@@ -60,7 +60,7 @@ indicates that the corresponding vertex has at least one incoming edge.
 }
 \details{
 The test is based on a permutation strategy. Specifically, to test for
-incomind edges in vertex i, \code{per} many datasets are simulated using the
+incoming edges in vertex i, \code{per} many datasets are simulated using the
 provided parameters, but where the i-th row of \code{C} is replaced by zeros. In
 each dataset (including the original dataset), the covariance test statistic
 is computed for the LASSO regression that estimates the corresponding row of
