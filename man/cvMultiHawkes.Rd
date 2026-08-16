@@ -113,5 +113,5 @@ The return value is the choice of the tuning parameter for each vertex that
 yields the lowest individual loss.
 
 This routine is only suitable for multi Hawkes processes with at least two
-elements. For this task, use \code{\link[=cvHawkes]{cvHawkes()}} instead.
+elements. For a single process, use \code{\link[=cvHawkes]{cvHawkes()}} instead.
 }

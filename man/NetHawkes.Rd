@@ -24,7 +24,9 @@ NetHawkes(
   cluster = NULL,
   debias_thresh = 1e-14,
   debias_maxit = 1e+08,
-  debias_exact = TRUE
+  debias_exact = TRUE,
+  debias = TRUE,
+  regularize_C = FALSE
 )
 }
 \arguments{
@@ -101,6 +103,11 @@ computations.}
 \item{debias_exact}{If \code{TRUE}, the default, the node-wise lasso is computed
 exactly by coef() from the glmnet package. If \code{FALSE}, an approximation is
 used, which can speed-up computations.}
+
+\item{regularize_C}{If this is TRUE the provided estimate of C is thresholded
+first by applying maximum distance to the cord, i.e., small values of the
+estimated C are put equal to zero. If FALSE (the default), the provided
+estimate is use as provided.}
 }
 \value{
 \code{NetHawkes} returns a list containing the elements:

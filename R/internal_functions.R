@@ -240,7 +240,7 @@ estimate_hawkes_theta_container <- function(theta,covariates,hawkes,omega,omega_
   opt_theta <- estimate_hawkes(fit_theta=FALSE,beta_init=theta[1:q],gamma_init=theta[q+1],covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,C.ind.pen=C.ind.pen,print.level=print.level,max_iteration=max_iteration,tol=tol,alpha_init=alpha_init,link=link,observation_matrix=observation_matrix,cluster=cluster)
 
   ## Compute objective
-  obj <- compute_lest_squares_theta(par=theta,covariates=covariates,C=opt_theta$C,alpha=opt_theta$alpha,hawkes=hawkes,link=link)/T+2*sum(omega*opt_theta$C)+2*omega_alpha*sum(opt_theta$alpha)
+  obj <- compute_lest_squares_theta(par=theta,covariates=covariates,C=opt_theta$C,alpha=opt_theta$alpha,hawkes=hawkes,link=link)/T+2*sum(omega/theta[q+1]*opt_theta$C)+2*omega_alpha*sum(opt_theta$alpha)
 
   return(obj)
 }
@@ -364,12 +364,12 @@ estimate_theta_multi_hawkes <- function(theta,multi_covariates,multi_hawkes,omeg
     if(is.null(cluster)) {
       ## No parallel computation
       for(i in 1:p) {
-        C[i,] <- LASSO_single_line(Y,i,p,T,M_C,omega,m,C.ind.pen)
+        C[i,] <- LASSO_single_line(Y,i,p,T,M_C,omega/gamma,m,C.ind.pen)
       }
     } else {
       ## Do parallel computations in the provided cluster
       par_out <- foreach::foreach(i=1:p,.combine=rbind,.packages=c('glmnet'),.inorder=FALSE) %dopar% {
-        c(i,LASSO_single_line(Y,i,p,T,M_C,omega,m,C.ind.pen))
+        c(i,LASSO_single_line(Y,i,p,T,M_C,omega/gamma,m,C.ind.pen))
       }
       ## Bring output in correct order
       C <- par_out[order(par_out[,1]),-1]
@@ -421,7 +421,7 @@ estimate_theta_multi_hawkes <- function(theta,multi_covariates,multi_hawkes,omeg
   }
 
   if(return_objective) {
-    return(as.numeric((t(alpha)%*%V%*%alpha+sum(diag(C%*%Gamma%*%t(C)))+2*sum(alpha*diag(C%*%t(G)))-2*sum(alpha*v)-2*sum(diag(C%*%t(A))))/(K*T))+2*sum(omega*C)+2*omega_alpha*sum(alpha))
+    return(as.numeric((t(alpha)%*%V%*%alpha+sum(diag(C%*%Gamma%*%t(C)))+2*sum(alpha*diag(C%*%t(G)))-2*sum(alpha*v)-2*sum(diag(C%*%t(A))))/(K*T))+2*sum(omega/gamma*C)+2*omega_alpha*sum(alpha))
   } else {
     return(list(C=C,alpha=alpha,beta=beta,gamma=gamma))
   }

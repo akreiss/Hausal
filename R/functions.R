@@ -383,12 +383,12 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=
     if(is.null(cluster)) {
       ## No parallel computation
       for(i in 1:p) {
-        C[i,] <- LASSO_single_line(Y,i,p,T,M_C,omega,m,C.ind.pen)
+        C[i,] <- LASSO_single_line(Y,i,p,T,M_C,omega/gamma,m,C.ind.pen)
       }
     } else {
       ## Do parallel computations in the provided cluster
       par_out <- foreach::foreach(i=1:p,.combine=rbind,.packages=c('glmnet'),.inorder=FALSE) %dopar% {
-        c(i,LASSO_single_line(Y,i,p,T,M_C,omega,m,C.ind.pen))
+        c(i,LASSO_single_line(Y,i,p,T,M_C,omega/gamma,m,C.ind.pen))
       }
       ## Bring output in correct order
       C <- par_out[order(par_out[,1]),-1]
@@ -475,6 +475,10 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=
 #' @inheritParams estimate_hawkes
 #' @param est_hawkes An estimated Hawkes Causal Model, the estimate has to be
 #'   formatted as the output of [estimate_hawkes()].
+#' @param regularize_C If this is TRUE the provided estimate of C is thresholded
+#'   first by applying maximum distance to the cord, i.e., small values of the
+#'   estimated C are put equal to zero. If FALSE (the default), the provided
+#'   estimate is use as provided.
 #' @param debias_thresh Passed to glmnet(), the default value is `1e-14`,
 #'   glmnet() suggests `1e-07`. Changing this value can speed up the
 #'   computations.
@@ -495,9 +499,10 @@ estimate_hawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen=
 #'  * `beta_debiased`: De-biased estimate for beta.
 #'  * `gamma_debiased`: De-biased estimate for gamma.
 #'  * `tuning_parameter`: The value that is used for all sigma_j
+#'  * `used_C`: The matrix C that is used to compute the de-biased estimates
 #'
 #' @export
-debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matrix=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
+debias_Hawkes <- function(covariates,hawkes,est_hawkes,regularize_C=FALSE,link=exp,observation_matrix=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
   p <- length(est_hawkes$alpha)
   q <- length(est_hawkes$beta)
   L <- length(covariates$times)
@@ -508,6 +513,22 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
     tildeX <- create_observation_matrix(1+q+p+p^2)
   } else {
     tildeX <- observation_matrix
+  }
+
+  #### Regularize C if requested
+  if(regularize_C) {
+    ## Find elbow by maximum distance to the cord
+    Cest <- est_hawkes$C
+    x <- sort(as.vector(Cest[Cest!=0]),decreasing = TRUE)
+    xx <- seq(from=0,to=1,length.out=length(x))
+    yy <- (x - min(x)) / (max(x) - min(x))
+    elbow <- max(c(2,which.max((1 - xx) - yy)))
+
+    ## Keep only elbow-1 many entries in the estimated C
+    Cest[Cest < sort(Cest, decreasing = TRUE)[elbow-1]] <- 0
+
+    ## Copy new estimate of C in est_hawkes
+    est_hawkes$C <- Cest
   }
 
   #### Compute Auxiliary Information
@@ -571,7 +592,16 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
 
 
   #### Compute Gradient
+  ## Compute gradient with respect to alpha and C
   grad <- .Call("compute_derivatives",as.double(V_diag),as.double(est_hawkes$alpha),as.double(v),as.double(est_hawkes$C),as.double(G),as.double(Gamma),as.double(A),as.integer(q))/(p*T)
+
+  ## Add gradient with respect to beta
+  for(k in 1:q) {
+    grad[k] <- (sum(est_hawkes$alpha^2*Vderivs[[1]][,k])+2*sum(est_hawkes$alpha*diag(est_hawkes$C%*%t(Gderivs[[3]][[k]])))-2*sum(est_hawkes$alpha*vecvderivs[[1]][,k]))/(p*T)
+  }
+
+  ## Add gradient with respect to gamma
+  grad[q+1] <- (sum(diag(est_hawkes$C%*%Gammaderivs[[1]]%*%t(est_hawkes$C)))+2*sum(est_hawkes$alpha*diag(est_hawkes$C%*%t(Gderivs[[1]])))-2*sum(diag(est_hawkes$C%*%t(Aderivs[[1]]))))/(p*T)
 
   #### Compute Sigma
   Sigma <- matrix(NA,nrow=q+1+p+p^2,ncol=q+1+p+p^2)
@@ -617,7 +647,7 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   Sigma[(q+1+p+1):(q+1+p+p^2),(q+1+p+1):(q+1+p+p^2)] <- matrix(.Call("compute_d2C_deriv",Gamma),nrow=p^2)/(p*T)
 
   #### Compute Nodewise LASSO for the first columns of Sigma corresponding to beta and gamma
-  ## Compute Nodewise LASSO using sigma from the paper
+  ## Compute Nodewise LASSO
   Theta_tilde <- matrix(NA,ncol=1+q+p+p^2,nrow=q+1)
   sparsity <- 1+sum(est_hawkes$C!=0)/p+sum(rowSums(est_hawkes$C)^2)/p
   pen_weight <- 1/(p^(3/2)*log(p*T)^4*sparsity)
@@ -627,15 +657,12 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
     m <- length(Z)
     node_lasso_Zsd <- sd(Z)*sqrt((m-1)/m)
     node_lasso_Msd <- apply(M,2,sd)*sqrt((m-1)/m)
-#    nvars <- dim(Sigma)[2]-1
-
-#    weight_scaling <- nvars/sum(1/node_lasso_Msd)
-
-#    node_wise_lasso <- glmnet::glmnet(t(t(M)/node_lasso_Msd),Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,penalty.factor=weight_scaling/node_lasso_Msd,thresh=debias_thresh,maxit=debias_maxit)
-#    vec <- node_lasso_Zsd*coef(node_wise_lasso,s=pen_weight/(node_lasso_Zsd*m*weight_scaling),exact=debias_exact,x=t(t(M)/node_lasso_Msd),y=Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,penalty.factor=weight_scaling/node_lasso_Msd,thresh=debias_thresh,maxit=debias_maxit)[-1]/node_lasso_Msd
 
     node_wise_lasso <- glmnet::glmnet(t(t(M)/node_lasso_Msd),Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,thresh=debias_thresh,maxit=debias_maxit)
-    vec <- node_lasso_Zsd*coef(node_wise_lasso,s=pen_weight/(node_lasso_Zsd*m),exact=debias_exact,x=t(t(M)/node_lasso_Msd),y=Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,thresh=debias_thresh,maxit=debias_maxit)[-1]/node_lasso_Msd
+
+    lambda <- node_wise_lasso$lambda[max(which(node_wise_lasso$df<=q+1+sqrt(T)))]
+
+    vec <- node_lasso_Zsd*coef(node_wise_lasso,s=lambda                       ,exact=debias_exact,x=t(t(M)/node_lasso_Msd),y=Z/node_lasso_Zsd,intercept=FALSE,standardize=FALSE,thresh=debias_thresh,maxit=debias_maxit)[-1]/node_lasso_Msd
 
     tau <- as.numeric((Sigma%*%Sigma)[j,j]-matrix((Sigma%*%Sigma)[j,-j],nrow=1)%*%vec)
     if(tau==0) {
@@ -652,7 +679,7 @@ debias_Hawkes <- function(covariates,hawkes,est_hawkes,link=exp,observation_matr
   ## Compute De-Biased Estimator
   theta_debiased <- c(est_hawkes$beta,est_hawkes$gamma)-Theta%*%matrix(grad,ncol=1)
 
-  return(list(grad=grad,Sigma=Sigma,Theta=Theta,beta_debiased=theta_debiased[1:q],gamma_debiased=theta_debiased[q+1],tuning_parameter=pen_weight))
+  return(list(grad=grad,Sigma=Sigma,Theta=Theta,beta_debiased=theta_debiased[1:q],gamma_debiased=theta_debiased[q+1],tuning_parameter=lambda,used_C=est_hawkes$C))
 }
 
 
@@ -719,7 +746,7 @@ NetHawkes_robust <- function(covariates,hawkes,omega,omega_alpha,lb,ub,C.ind.pen
 #'   allows, e.g., to check for convergence of the optimization.
 #'
 #'@export
-NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE) {
+NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=0,max_iteration=100,tol=0.00001,link=exp,observation_matrix_network=NULL,observation_matrix_debiasing=NULL,cluster=NULL,debias_thresh=1e-14,debias_maxit=100000000,debias_exact=TRUE,debias=TRUE,regularize_C=FALSE) {
   ## Read information
   q <- dim(covariates$cov[[1]])[2]
 
@@ -818,16 +845,21 @@ NetHawkes <- function(covariates,hawkes,omega,omega_alpha,lb,ub,K,starting_beta=
 
 
   #### Debiasing
-  if(print.level>0) {
-    cat("Debias the first stage estimator.\n")
-  }
-  debiased_est <- debias_Hawkes(covariates=covariates,hawkes=hawkes,est_hawkes=eh_out,link=link,observation_matrix=observation_matrix_debiasing,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
+  if(debias) {
+    if(print.level>0) {
+      cat("Debias the first stage estimator.\n")
+    }
+    debiased_est <- debias_Hawkes(covariates=covariates,hawkes=hawkes,est_hawkes=eh_out,link=link,observation_matrix=observation_matrix_debiasing,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact,regularize_C=regularize_C)
 
-  ## Compute Network estimate with debiased estimator
-  if(print.level>0) {
-    cat("Compute second stage estimator.\n")
+    ## Compute Network estimate with debiased estimator
+    if(print.level>0) {
+      cat("Compute second stage estimator.\n")
+    }
+    est_second_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=NULL,ub=NULL,C.ind.pen=C.ind.pen,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=debiased_est$beta_debiased,gamma_init=debiased_est$gamma_debiased,alpha_init=eh_out$alpha,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
+  } else {
+    debiased_est <- NA
+    est_second_stage <- NA
   }
-  est_second_stage <- estimate_hawkes(covariates=covariates,hawkes=hawkes,omega=omega,omega_alpha=omega_alpha,lb=NULL,ub=NULL,C.ind.pen=C.ind.pen,fit_theta=FALSE,print.level=print.level,max_iteration=max_iteration,tol=tol,beta_init=debiased_est$beta_debiased,gamma_init=debiased_est$gamma_debiased,alpha_init=eh_out$alpha,link=link,observation_matrix=observation_matrix_network,cluster=cluster)
 
   return(list(first_stage=eh_out,second_stage=est_second_stage,debiasing=debiased_est,nloptr=refined_out))
 }
@@ -882,7 +914,7 @@ NetHawkes_gridsearch <- function(covariates,hawkes,omega,omega_alpha,lb,ub,delta
     obj <- compute_lest_squares_theta(par=grid[j,],covariates=covariates,C=opt_theta$C,alpha=opt_theta$alpha,hawkes=hawkes,link=link)
 
     ## Compute penalized version
-    obj_vals[j] <- obj/time_horizon+2*sum(omega*opt_theta$C)+2*omega_alpha*sum(opt_theta$alpha)
+    obj_vals[j] <- obj/time_horizon+2*sum(omega/grid[j,q+1]*opt_theta$C)+2*omega_alpha*sum(opt_theta$alpha)
 
     ########### Status Message ###################################################
     if(j %% 50 == 0) {
@@ -1205,9 +1237,9 @@ compute_omega <- function(hawkes,p,T,alpha3,gamma_bar,mu=log(2)) {
   B <- 0
   for(j in 1:p) {
     times <- sort(hawkes$EL[hawkes$EL[,3]==j,4])
-    if(length(times)>0) {
-      for(k in 1:length(times)) {
-        B <- max(c(B,4*sum(exp(-gamma_bar*(times[k]-times[1:k])))/T))
+    if(length(times)>1) {
+      for(k in 2:length(times)) {
+        B <- max(c(B,4*sum(gamma_bar*exp(-gamma_bar*(times[k]-times[1:(k-1)])))/T))
       }
     }
   }
@@ -1216,7 +1248,7 @@ compute_omega <- function(hawkes,p,T,alpha3,gamma_bar,mu=log(2)) {
   phi_mu <- exp(mu)-mu-1
 
   ## Compute Integral
-  int <- .Call("compute_Vd_int",as.integer(p),hawkes$EL,as.double(gamma_bar))
+  int <- .Call("compute_Vd_int",as.integer(p),hawkes$EL,as.double(gamma_bar))*gamma_bar^2
 
   ## Compute Vd
   Vd <- 16*mu*int/((mu-phi_mu)*T^2)+B^2*(log(p)+log(p*T)+alpha3*log(T))/(mu-phi_mu)
@@ -1382,7 +1414,7 @@ MultiHawkes <- function(multi_covariates,multi_hawkes,omega,omega_alpha,lb,ub,K,
 #' yields the lowest individual loss.
 #'
 #' This routine is only suitable for multi Hawkes processes with at least two
-#' elements. For this task, use [cvHawkes()] instead.
+#' elements. For a single process, use [cvHawkes()] instead.
 #'
 #' @inheritParams MultiHawkes
 #' @param multi_covariates A list of the same format as in
@@ -1625,8 +1657,8 @@ cvHawkes <- function(Hawkes,covariates,omega_start,lb,ub,nos=5,tf=0.8,M=5,starti
     computed_omega[2*m  ,] <- omega2
 
     ## Compute estimates
-    est1 <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
-    est2 <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
+    est1 <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega1,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact,debias=FALSE)
+    est2 <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega2,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact,debias=FALSE)
 
     ## Compute corresponding least squares
     LSvals[2*m-1,] <- compute_individual_lest_squares_theta(c(est1$first_stage$beta,est1$first_stage$gamma),test_covariates,est1$first_stage$C,est1$first_stage$alpha,test_hawkes,link=link)
@@ -1648,7 +1680,7 @@ cvHawkes <- function(Hawkes,covariates,omega_start,lb,ub,nos=5,tf=0.8,M=5,starti
   ## Compute Estimate for the mid point of the resulting interval
   omega_mid <- (omega_lb+omega_ub)/2
   computed_omega[2*M+1,] <- omega_mid
-  est <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact)
+  est <- NetHawkes(covariates=training_covariates,hawkes=training_hawkes,omega=omega_mid,omega_alpha=0,lb=lb,ub=ub,K=nos,starting_beta=NULL,starting_gamma=NULL,C.ind.pen=NULL,print.level=print.level,max_iteration=max_iteration,tol=tol,link=link,observation_matrix_network=observation_matrix,cluster=cluster,debias_thresh=debias_thresh,debias_maxit=debias_maxit,debias_exact=debias_exact,debias=FALSE)
   LSvals[2*M+1,] <- compute_individual_lest_squares_theta(c(est$first_stage$beta,est$first_stage$gamma),test_covariates,est$first_stage$C,est$first_stage$alpha,test_hawkes,link=link)
 
   ## Find minimum
