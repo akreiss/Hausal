@@ -8,6 +8,7 @@ debias_Hawkes(
   covariates,
   hawkes,
   est_hawkes,
+  regularize_C = FALSE,
   link = exp,
   observation_matrix = NULL,
   debias_thresh = 1e-14,
@@ -25,6 +26,11 @@ output of \code{\link[=simulate_hawkes]{simulate_hawkes()}}.}
 
 \item{est_hawkes}{An estimated Hawkes Causal Model, the estimate has to be
 formatted as the output of \code{\link[=estimate_hawkes]{estimate_hawkes()}}.}
+
+\item{regularize_C}{If this is TRUE the provided estimate of C is thresholded
+first by applying maximum distance to the cord, i.e., small values of the
+estimated C are put equal to zero. If FALSE (the default), the provided
+estimate is use as provided.}
 
 \item{link}{A function that can be applied to vectors returning a
 non-negative vector of the same length, it will be applied to linear
@@ -61,6 +67,7 @@ via node-wise LASSO.
 \item \code{beta_debiased}: De-biased estimate for beta.
 \item \code{gamma_debiased}: De-biased estimate for gamma.
 \item \code{tuning_parameter}: The value that is used for all sigma_j
+\item \code{used_C}: The matrix C that is used to compute the de-biased estimates
 }
 }
 \description{
